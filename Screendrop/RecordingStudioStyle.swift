@@ -404,6 +404,25 @@ enum RecordingStudioDefaults {
 /// Deterministic canvas layout shared by the preview and the exporter.
 /// All rects are in the given canvas space with a top-left origin.
 nonisolated struct RecordingStudioLayout: Sendable {
+    /// Original follows the visible source, then adds an equal border without
+    /// stretching the video. Padding remains a fraction of the canvas's short side.
+    static func originalCanvasSize(
+        sourceSize: CGSize,
+        style: RecordingStudioStyle,
+        contentCropRect: CGRect
+    ) -> CGSize {
+        let crop = RecordingVideoCropGeometry.isCropped(contentCropRect)
+            ? RecordingVideoCropGeometry.normalized(contentCropRect)
+            : RecordingVideoCropGeometry.unit
+        let visibleSize = CGSize(
+            width: sourceSize.width * crop.width,
+            height: sourceSize.height * crop.height
+        )
+        let padding = min(max(style.padding, 0), 0.475)
+        let inset = min(visibleSize.width, visibleSize.height) * padding / (1 - 2 * padding)
+        return CGSize(width: visibleSize.width + 2 * inset, height: visibleSize.height + 2 * inset)
+    }
+
     let canvasSize: CGSize
     let cardRect: CGRect
     let cardCornerRadius: CGFloat
@@ -428,16 +447,22 @@ nonisolated struct RecordingStudioLayout: Sendable {
         canvasSize: CGSize,
         style: RecordingStudioStyle,
         includeBubble: Bool,
+        usesUniformPadding: Bool = false,
         contentAspect: CGFloat? = nil,
         contentMode: ContentMode = .fill,
         contentCropRect: CGRect = CGRect(x: 0, y: 0, width: 1, height: 1)
     ) -> RecordingStudioLayout {
         let minDimension = min(canvasSize.width, canvasSize.height)
-        let inset = (style.padding * minDimension).rounded()
-        // Shrink the card uniformly so it keeps the video's aspect ratio -
-        // insetting both axes by the same amount would stretch the recording.
+        let inset = usesUniformPadding
+            ? min(max(style.padding, 0), 0.475) * minDimension
+            : (style.padding * minDimension).rounded()
+        // Fixed presets retain their existing scale-based layout. Original's
+        // canvas already includes the border, so inset each edge equally.
         let cardScale = max(0.05, 1 - 2 * inset / minDimension)
-        var cardSize = CGSize(
+        var cardSize = usesUniformPadding ? CGSize(
+            width: canvasSize.width - 2 * inset,
+            height: canvasSize.height - 2 * inset
+        ) : CGSize(
             width: (canvasSize.width * cardScale).rounded(),
             height: (canvasSize.height * cardScale).rounded()
         )
@@ -458,9 +483,8 @@ nonisolated struct RecordingStudioLayout: Sendable {
         } else {
             nil
         }
-        if let cardAspect, cardAspect > 0 {
-            // A manually cropped recording reshapes only the video card;
-            // the surrounding canvas and its background keep their size.
+        if let cardAspect, cardAspect > 0, !usesUniformPadding {
+            // Fixed presets keep their canvas; Original already follows the crop.
             let fitHeight = min(cardSize.height, cardSize.width / cardAspect)
             cardSize = CGSize(
                 width: (cardAspect * fitHeight).rounded(),
@@ -468,8 +492,10 @@ nonisolated struct RecordingStudioLayout: Sendable {
             )
         }
         let cardRect = CGRect(
-            x: ((canvasSize.width - cardSize.width) / 2).rounded(),
-            y: ((canvasSize.height - cardSize.height) / 2).rounded(),
+            x: usesUniformPadding ? (canvasSize.width - cardSize.width) / 2
+                : ((canvasSize.width - cardSize.width) / 2).rounded(),
+            y: usesUniformPadding ? (canvasSize.height - cardSize.height) / 2
+                : ((canvasSize.height - cardSize.height) / 2).rounded(),
             width: cardSize.width,
             height: cardSize.height
         )
@@ -499,10 +525,21 @@ nonisolated struct RecordingStudioLayout: Sendable {
             // Draw the full source behind the card at the scale where the
             // selected source rectangle fills it exactly. The viewport anchor
             // then positions that rectangle without touching other layers.
-            contentFillSize = CGSize(
-                width: cardRect.width / crop.width,
-                height: cardRect.height / crop.height
-            )
+            if usesUniformPadding {
+                // Even-pixel export rounding can slightly change the canvas
+                // aspect. Fill that fraction of a pixel instead of exposing
+                // wallpaper at zero padding or stretching the source.
+                let fillHeight = max(
+                    cardRect.height / crop.height,
+                    cardRect.width / (crop.width * sourceAspect)
+                )
+                contentFillSize = CGSize(width: sourceAspect * fillHeight, height: fillHeight)
+            } else {
+                contentFillSize = CGSize(
+                    width: cardRect.width / crop.width,
+                    height: cardRect.height / crop.height
+                )
+            }
         } else if let contentAspect, contentAspect > 0, cardRect.height > 0 {
             let fillHeight = max(cardRect.height, cardRect.width / contentAspect)
             contentFillSize = CGSize(

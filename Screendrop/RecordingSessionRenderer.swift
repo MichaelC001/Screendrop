@@ -121,7 +121,7 @@ enum RecordingSessionRenderer {
             }
             : nil
         let fitContentAspect: CGFloat? =
-            aspect != .original && aspectMode == .fit && canvasSize.height > 0
+            (aspect == .original || aspectMode == .fit) && canvasSize.height > 0
                 ? canvasSize.width / canvasSize.height
                 : nil
 
@@ -145,14 +145,19 @@ enum RecordingSessionRenderer {
                 ? KaraokeTimeline(cues: cues, words: words)
                 : nil,
             canvasSize: aspect == .original
-                ? canvasSize
+                ? RecordingStudioLayout.originalCanvasSize(
+                    sourceSize: canvasSize,
+                    style: style,
+                    contentCropRect: document?.normalizedVideoCropRect ?? RecordingVideoCropGeometry.unit
+                )
                 : aspect.canvasSize(for: canvasSize),
             videoCropRect: document?.normalizedVideoCropRect
                 ?? CGRect(x: 0, y: 0, width: 1, height: 1),
             clipTimeline: clipTimeline,
             exportSettings: document?.exportSettings ?? VideoCompressionSettings(),
             reframe: reframe,
-            fitContentAspect: fitContentAspect
+            fitContentAspect: fitContentAspect,
+            usesUniformPadding: aspect == .original
         )
 
         let temporaryURL = try await RecordingStudioExporter().export(configuration) { progress in

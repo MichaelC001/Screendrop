@@ -1741,7 +1741,7 @@ final class RecordingStudioModel {
     private func makeExportConfiguration() -> RecordingStudioExporter.Configuration {
         let reframe = makeReframeTrack()
         let fitContentAspect: CGFloat? =
-            exportAspect != .original && exportAspectMode == .fit && videoSize.height > 0
+            (exportAspect == .original || exportAspectMode == .fit) && videoSize.height > 0
                 ? videoSize.width / videoSize.height
                 : nil
         return RecordingStudioExporter.Configuration(
@@ -1765,7 +1765,8 @@ final class RecordingStudioModel {
             exportSettings: exportSettings,
             audioReplacementURL: replacementAudio?.url,
             reframe: reframe,
-            fitContentAspect: fitContentAspect
+            fitContentAspect: fitContentAspect,
+            usesUniformPadding: exportAspect == .original
         )
     }
 
@@ -1812,23 +1813,32 @@ final class RecordingStudioModel {
     // MARK: - Preview canvas
 
     /// What the Studio canvas shows: the target-aspect canvas when a
-    /// non-original aspect is selected, the source canvas otherwise.
+    /// non-original aspect is selected, the visible source plus padding otherwise.
     var basePreviewCanvasSize: CGSize {
-        exportAspect == .original ? videoSize : exportAspect.canvasSize(for: videoSize)
+        exportAspect == .original
+            ? RecordingStudioLayout.originalCanvasSize(
+                sourceSize: videoSize, style: style, contentCropRect: videoCropRect
+            )
+            : exportAspect.canvasSize(for: videoSize)
     }
 
     var previewCanvasSize: CGSize {
-        basePreviewCanvasSize
+        if exportAspect == .original, isCroppingVideo {
+            RecordingStudioLayout.originalCanvasSize(
+                sourceSize: videoSize, style: style, contentCropRect: CropRectEditor.unit
+            )
+        } else {
+            basePreviewCanvasSize
+        }
     }
 
     var sourceVideoAspect: CGFloat {
         videoSize.height > 0 ? videoSize.width / videoSize.height : 1
     }
 
-    /// Source aspect for laying out the card on a target-aspect canvas;
-    /// nil in the original-aspect layout where card and content agree.
+    /// The source aspect remains independent of the padded canvas and video crop.
     var previewContentAspect: CGFloat? {
-        guard (exportAspect != .original || isVideoCropped), videoSize.height > 0 else { return nil }
+        guard videoSize.height > 0 else { return nil }
         return sourceVideoAspect
     }
 
@@ -1838,7 +1848,7 @@ final class RecordingStudioModel {
 
     /// How the content occupies the card on a target-aspect canvas.
     var previewContentMode: RecordingStudioLayout.ContentMode {
-        exportAspect != .original && exportAspectMode == .fit ? .fit : .fill
+        exportAspect == .original || exportAspectMode == .fit ? .fit : .fill
     }
 
     /// Virtual camera for the preview: the reframe crop when active, the

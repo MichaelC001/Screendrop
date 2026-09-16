@@ -466,6 +466,7 @@ private struct StudioCanvas: View {
                 canvasSize: canvasSize,
                 style: model.style,
                 includeBubble: model.hasCameraVideo,
+                usesUniformPadding: model.exportAspect == .original,
                 contentAspect: model.sourceVideoAspect,
                 contentMode: .fit
             )
@@ -506,6 +507,7 @@ private struct StudioCanvas: View {
 
 /// The complete canvas composition. A video crop changes only the screen card
 /// layout and viewport; background, camera and captions remain in canvas space.
+/// Original sizes that canvas to the visible source plus an equal border.
 private struct StudioCanvasComposition: View {
     @Bindable var model: RecordingStudioModel
     let canvasSize: CGSize
@@ -516,6 +518,7 @@ private struct StudioCanvasComposition: View {
             canvasSize: canvasSize,
             style: model.style,
             includeBubble: model.hasCameraVideo,
+            usesUniformPadding: model.exportAspect == .original,
             contentAspect: isEditingVideoCrop ? model.sourceVideoAspect : model.previewContentAspect,
             contentMode: isEditingVideoCrop ? .fit : model.previewContentMode,
             contentCropRect: isEditingVideoCrop ? CropRectEditor.unit : model.videoCropRect

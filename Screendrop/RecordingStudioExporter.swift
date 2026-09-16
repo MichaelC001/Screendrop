@@ -57,11 +57,12 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
         /// Non-nil when exporting into a different aspect ratio; drives the
         /// crop-and-follow virtual camera in place of the zoom viewport.
         let reframe: ReframeTrack?
-        /// Non-nil when exporting into a different aspect ratio in Fit
-        /// mode: the whole recording shows in a content-aspect card and
+        /// Non-nil for Original or a different aspect ratio in Fit
+        /// mode: the recording shows in a content-aspect card and
         /// the background fills the rest. Mutually exclusive with
         /// `reframe`.
         let fitContentAspect: CGFloat?
+        let usesUniformPadding: Bool
 
         init(
             screenURL: URL,
@@ -82,7 +83,8 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
             exportSettings: VideoCompressionSettings,
             audioReplacementURL: URL? = nil,
             reframe: ReframeTrack? = nil,
-            fitContentAspect: CGFloat? = nil
+            fitContentAspect: CGFloat? = nil,
+            usesUniformPadding: Bool = false
         ) {
             self.screenURL = screenURL
             self.cameraURL = cameraURL
@@ -103,6 +105,7 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
             self.audioReplacementURL = audioReplacementURL
             self.reframe = reframe
             self.fitContentAspect = fitContentAspect
+            self.usesUniformPadding = usesUniformPadding
         }
     }
 
@@ -319,7 +322,8 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
             includeBubble: cameraFeed != nil,
             timing: timing,
             reframe: configuration.reframe,
-            fitContentAspect: configuration.fitContentAspect
+            fitContentAspect: configuration.fitContentAspect,
+            usesUniformPadding: configuration.usesUniformPadding
         )
 
         let screenAudioOutput = audioOutput
@@ -649,7 +653,8 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
         includeBubble: Bool,
         timing: RecordingExportTiming,
         reframe: ReframeTrack? = nil,
-        fitContentAspect: CGFloat? = nil
+        fitContentAspect: CGFloat? = nil,
+        usesUniformPadding: Bool = false
     ) {
         self.canvasSize = canvasSize
         self.videoCropRect = RecordingVideoCropGeometry.normalized(videoCropRect)
@@ -657,6 +662,7 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
             canvasSize: canvasSize,
             style: style,
             includeBubble: includeBubble,
+            usesUniformPadding: usesUniformPadding,
             contentAspect: reframe?.sourceAspect ?? fitContentAspect,
             contentMode: fitContentAspect != nil && reframe == nil ? .fit : .fill,
             contentCropRect: videoCropRect
