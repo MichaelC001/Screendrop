@@ -27,6 +27,28 @@
     -->
 
     <item>
+      <title>Version 0.32.1</title>
+      <sparkle:version>30</sparkle:version>
+      <sparkle:shortVersionString>0.32.1</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.4</sparkle:minimumSystemVersion>
+      <pubDate>Wed, 16 Sep 2026 06:50:37 +0000</pubDate>
+      <description><![CDATA[
+        <h2>What's New in 0.32.1</h2>
+        <ul>
+          <li>Fixed uneven padding in the recording editor when using Original aspect ratio.</li>
+          <li>Original now fits the cropped video, removing wallpaper strips at 0% padding.</li>
+          <li>Preview and export use matching padding, and older cached exports refresh with the corrected layout.</li>
+        </ul>
+      ]]></description>
+      <enclosure
+        url="https://github.com/fayazara/screendrop/releases/download/v0.32.1/Screendrop.dmg"
+        type="application/octet-stream"
+        sparkle:edSignature="D4NXiviKKXVp1jvtDXNST+a/eVeRdJcaIAqKFAEgbgcye1xf2P/0AxIEEocpX1kbUYF1l5bgv+B7q0LNbNpABw=="
+        length="7257466"
+      />
+    </item>
+
+    <item>
       <title>Version 0.32.0</title>
       <sparkle:version>29</sparkle:version>
       <sparkle:shortVersionString>0.32.0</sparkle:shortVersionString>
