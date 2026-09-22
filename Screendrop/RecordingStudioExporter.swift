@@ -54,6 +54,7 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
         /// audio. It is already the finished cut's audio, so it plays flat
         /// from zero instead of being re-cut through the clip timeline.
         let audioReplacementURL: URL?
+        let audioVolume: Double
         /// Non-nil when exporting into a different aspect ratio; drives the
         /// crop-and-follow virtual camera in place of the zoom viewport.
         let reframe: ReframeTrack?
@@ -82,6 +83,7 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
             clipTimeline: RecordingClipTimeline,
             exportSettings: VideoCompressionSettings,
             audioReplacementURL: URL? = nil,
+            audioVolume: Double = 1,
             reframe: ReframeTrack? = nil,
             fitContentAspect: CGFloat? = nil,
             usesUniformPadding: Bool = false
@@ -103,6 +105,7 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
             self.clipTimeline = clipTimeline
             self.exportSettings = exportSettings
             self.audioReplacementURL = audioReplacementURL
+            self.audioVolume = audioVolume
             self.reframe = reframe
             self.fitContentAspect = fitContentAspect
             self.usesUniformPadding = usesUniformPadding
@@ -222,6 +225,7 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
                         audioTracks: replacementTracks,
                         audioSettings: nil
                     )
+                    output.audioMix = RecordingAudioGain.makeMix(tracks: replacementTracks, volume: configuration.audioVolume)
                     output.alwaysCopiesSampleData = false
                     reader.add(output)
                     replacementReader = reader
@@ -232,6 +236,7 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
                     audioTracks: audioTracks,
                     audioSettings: nil
                 )
+                output.audioMix = RecordingAudioGain.makeMix(tracks: audioTracks, volume: configuration.audioVolume)
                 output.alwaysCopiesSampleData = false
                 screenReader.add(output)
                 audioOutput = output

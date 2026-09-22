@@ -183,8 +183,22 @@ final class RecordingStudioModel {
     /// live progress and the history card mirrors the state.
     private(set) var shareItemID: UUID?
 
-    /// Format the audio-only export writes. Persisted so the round trip
-    /// through an external tool keeps whatever that tool accepts.
+    /// Gain shared by playback and video/audio export; 1 preserves the source.
+    var audioVolume: CGFloat = 1 {
+        didSet {
+            updatePlaybackVolume()
+            scheduleProjectSave()
+        }
+    }
+
+    private func updatePlaybackVolume() {
+        guard let item = screenPlayer.currentItem else { return }
+        item.audioMix = RecordingAudioGain.makeMix(
+            tracks: item.asset.tracks(withMediaType: .audio), volume: Double(audioVolume)
+        )
+    }
+
+    /// Format the audio-only export writes.
     var audioExportFormat: RecordingAudioFormat = .m4a {
         didSet { scheduleProjectSave() }
     }
@@ -439,6 +453,7 @@ final class RecordingStudioModel {
         exportAspectMode = document.exportAspectContentMode
         videoCropRect = document.normalizedVideoCropRect
         audioExportFormat = document.audioExportFormatValue
+        audioVolume = CGFloat(RecordingAudioGain.normalized(document.audioVolume ?? 1))
     }
 
     func teardown() {
@@ -807,6 +822,7 @@ final class RecordingStudioModel {
         }
 
         screenPlayer.replaceCurrentItem(with: AVPlayerItem(asset: playbackAsset))
+        updatePlaybackVolume()
         screenPlayer.actionAtItemEnd = .pause
         currentTime = min(max(editorTime, 0), duration)
         movePlayers(to: currentTime)
@@ -1151,7 +1167,8 @@ final class RecordingStudioModel {
             videoCropRect: isVideoCropped ? videoCropRect : nil,
             replacementAudioFileName: replacementAudio?.url.lastPathComponent,
             replacementAudioDisplayName: replacementAudio?.displayName,
-            audioExportFormat: audioExportFormat
+            audioExportFormat: audioExportFormat,
+            audioVolume: Double(audioVolume)
         )
     }
 
@@ -1764,6 +1781,7 @@ final class RecordingStudioModel {
             clipTimeline: clipTimeline,
             exportSettings: exportSettings,
             audioReplacementURL: replacementAudio?.url,
+            audioVolume: Double(audioVolume),
             reframe: reframe,
             fitContentAspect: fitContentAspect,
             usesUniformPadding: exportAspect == .original
@@ -2004,7 +2022,8 @@ final class RecordingStudioModel {
             screenURL: screenURL,
             clipTimeline: clipTimeline,
             replacementURL: replacementAudio?.url,
-            format: audioExportFormat
+            format: audioExportFormat,
+            volume: Double(audioVolume)
         )
         let suggestedFileName = audioExportSuggestedFileName
         let dockProgressID = DockExportProgressCoordinator.shared.start()

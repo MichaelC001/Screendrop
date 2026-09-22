@@ -81,6 +81,7 @@ nonisolated final class RecordingAudioExporter: @unchecked Sendable {
         /// the edited timeline's length.
         let replacementURL: URL?
         let format: RecordingAudioFormat
+        var volume: Double = 1
     }
 
     enum ExportError: LocalizedError {
@@ -132,6 +133,7 @@ nonisolated final class RecordingAudioExporter: @unchecked Sendable {
             duration: CMTime(seconds: duration, preferredTimescale: 600)
         )
         let output = AVAssetReaderAudioMixOutput(audioTracks: tracks, audioSettings: nil)
+        output.audioMix = RecordingAudioGain.makeMix(tracks: tracks, volume: configuration.volume)
         output.alwaysCopiesSampleData = false
         reader.add(output)
 

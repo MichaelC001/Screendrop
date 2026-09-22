@@ -3248,6 +3248,7 @@ private struct StudioInspector: View {
             // A silent recording has nothing to send out, but it can still
             // be given a soundtrack - so only the export half is withheld.
             if model.hasAudio {
+                InspectorSlider("Volume", value: $model.audioVolume, range: 0...2, format: .percent())
                 InspectorSegmented(
                     options: RecordingAudioFormat.allCases,
                     isSelected: { $0 == model.audioExportFormat },

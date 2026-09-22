@@ -62,6 +62,7 @@ struct RecordingEditDocument: Codable, Equatable {
     var replacementAudioDisplayName: String?
     /// Raw RecordingAudioFormat value for the audio-only export.
     var audioExportFormat: String?
+    var audioVolume: Double?
 
     private enum CodingKeys: String, CodingKey {
         case formatVersion
@@ -90,6 +91,7 @@ struct RecordingEditDocument: Codable, Equatable {
         case replacementAudioFileName
         case replacementAudioDisplayName
         case audioExportFormat
+        case audioVolume
     }
 
     init(
@@ -111,7 +113,8 @@ struct RecordingEditDocument: Codable, Equatable {
         videoCropRect: CGRect? = nil,
         replacementAudioFileName: String? = nil,
         replacementAudioDisplayName: String? = nil,
-        audioExportFormat: RecordingAudioFormat? = nil
+        audioExportFormat: RecordingAudioFormat? = nil,
+        audioVolume: Double? = nil
     ) {
         self.style = StoredRecordingStudioStyle(style)
         self.zoomEnabled = zoomEnabled
@@ -141,6 +144,7 @@ struct RecordingEditDocument: Codable, Equatable {
         self.replacementAudioFileName = replacementAudioFileName
         self.replacementAudioDisplayName = replacementAudioDisplayName
         self.audioExportFormat = audioExportFormat.map(\.rawValue)
+        self.audioVolume = audioVolume
     }
 
     var audioExportFormatValue: RecordingAudioFormat {
@@ -225,6 +229,7 @@ struct RecordingEditDocument: Codable, Equatable {
             forKey: .replacementAudioDisplayName
         )
         audioExportFormat = try container.decodeIfPresent(String.self, forKey: .audioExportFormat)
+        audioVolume = try container.decodeIfPresent(Double.self, forKey: .audioVolume)
     }
 
     func encode(to encoder: any Encoder) throws {
@@ -255,6 +260,7 @@ struct RecordingEditDocument: Codable, Equatable {
             forKey: .replacementAudioDisplayName
         )
         try container.encodeIfPresent(audioExportFormat, forKey: .audioExportFormat)
+        try container.encodeIfPresent(audioVolume, forKey: .audioVolume)
     }
 }
 
