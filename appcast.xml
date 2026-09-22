@@ -27,6 +27,28 @@
     -->
 
     <item>
+      <title>Version 0.33.0</title>
+      <sparkle:version>31</sparkle:version>
+      <sparkle:shortVersionString>0.33.0</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.4</sparkle:minimumSystemVersion>
+      <pubDate>Tue, 22 Sep 2026 08:52:44 +0000</pubDate>
+      <description><![CDATA[
+        <h2>What's New in 0.33.0</h2>
+        <ul>
+          <li>Choose any background color for screenshots and recordings using the new color-picker tile.</li>
+          <li>Adjust recording audio volume from mute to 200%, with changes saved to the project and applied to playback, video exports, and audio-only exports.</li>
+          <li>Show or hide the mouse pointer from the Cursor section in Recording Studio. Hiding the pointer also hides click highlights in preview and export for recordings with a separate cursor track.</li>
+        </ul>
+      ]]></description>
+      <enclosure
+        url="https://github.com/fayazara/screendrop/releases/download/v0.33.0/Screendrop.dmg"
+        type="application/octet-stream"
+        sparkle:edSignature="inioB8r7vqemMY2V30/8uQNXv9F/KF8ykx+5bJ8EiYgWs5kWdcGfqcEMSYXhUdy7d9/XFOsq4eFPUA0yY4K1AA=="
+        length="7275587"
+      />
+    </item>
+
+    <item>
       <title>Version 0.32.1</title>
       <sparkle:version>30</sparkle:version>
       <sparkle:shortVersionString>0.32.1</sparkle:shortVersionString>
