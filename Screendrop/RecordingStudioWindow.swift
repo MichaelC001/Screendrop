@@ -2698,6 +2698,7 @@ private struct StudioInspector: View {
                             preset.color
                         }
                     }
+                    InspectorCustomBackgroundColorTile(style: $model.style.background)
                 }
             }
 

@@ -497,3 +497,38 @@ struct InspectorTile<Content: View>: View {
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
+
+/// Custom background entry shares the grid's tile size and opens the native picker.
+struct InspectorCustomBackgroundColorTile: View {
+    @Binding var style: AnnotationBackgroundStyle
+    var onSelect: () -> Void = {}
+
+    private var currentColor: AnnotationBackgroundColor {
+        if case .solid(let color) = style { return color }
+        return .black
+    }
+
+    private var isSelected: Bool {
+        if case .solid(let color) = style {
+            return !AnnotationBackgroundColor.plainPresets.contains(color)
+        }
+        return false
+    }
+
+    var body: some View {
+        InspectorTile(title: "Custom color", isSelected: isSelected) {
+            AnnotationColorPanelBridge.shared.present(current: currentColor.nsColor) { color in
+                onSelect()
+                style = .solid(AnnotationBackgroundColor(custom: Color(nsColor: color)))
+            }
+        } content: {
+            Rectangle()
+                .fill(Color.primary.opacity(0.05))
+                .overlay {
+                    Image(systemName: "eyedropper")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.primary)
+                }
+        }
+    }
+}

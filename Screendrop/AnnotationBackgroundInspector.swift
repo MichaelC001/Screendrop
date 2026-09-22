@@ -165,6 +165,7 @@ struct AnnotationBackgroundInspector: View {
                         Rectangle().fill(color.color)
                     }
                 }
+                InspectorCustomBackgroundColorTile(style: $settings.style, onSelect: onEditorAction)
             }
 
         case .gradient:
