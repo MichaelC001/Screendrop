@@ -1313,7 +1313,7 @@ final class RecordingStudioModel {
     }
 
     func pointerFrame(at time: TimeInterval) -> PointerFrame? {
-        guard pointerIsSynthesized else { return nil }
+        guard !style.hidesCursor, pointerIsSynthesized else { return nil }
         return pointerTimeline.frame(at: time)
     }
 

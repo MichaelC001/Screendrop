@@ -91,7 +91,7 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
             self.cameraOffset = cameraOffset
             self.style = style
             self.viewportTimeline = viewportTimeline
-            self.pointerTimeline = pointerTimeline
+            self.pointerTimeline = style.hidesCursor ? nil : pointerTimeline
             self.showsPressEffects = showsPressEffects
             self.keystrokeTimeline = keystrokeTimeline
             self.keystrokePlacement = keystrokePlacement
@@ -668,7 +668,7 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
             contentCropRect: videoCropRect
         )
         self.viewportTimeline = viewportTimeline
-        self.pointerTimeline = pointerTimeline
+        self.pointerTimeline = style.hidesCursor ? nil : pointerTimeline
         self.showsPressEffects = showsPressEffects
         self.keystrokeTimeline = keystrokeTimeline
         self.keystrokePlacement = keystrokePlacement

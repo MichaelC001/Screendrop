@@ -2507,6 +2507,14 @@ private struct StudioInspector: View {
                                     model.style.cursorScale = RecordingStudioStyle.defaultCursorScale
                                 }
                             }
+                            Toggle("Show mouse pointer", isOn: Binding(
+                                get: { !model.style.hidesCursor },
+                                set: { model.style.hidesCursor = !$0 }
+                            ))
+                            .labelsHidden()
+                            .toggleStyle(.switch)
+                            .controlSize(.mini)
+                            .help("Show mouse pointer")
                         }
                     ) {
                         cursorControls
@@ -2958,8 +2966,9 @@ private struct StudioInspector: View {
                 range: 1...4,
                 format: .magnification(fractionDigits: 1)
             )
+            .disabled(model.style.hidesCursor)
 
-            if model.canShowPressEffects {
+            if model.canShowPressEffects && !model.style.hidesCursor {
                 HStack(spacing: 8) {
                     Text("Click highlights")
                         .font(.inspectorLabel)
