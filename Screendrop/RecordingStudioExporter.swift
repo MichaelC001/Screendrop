@@ -924,19 +924,73 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
             y: canvasSize.height - (drawRect.minY + pointer.location.y * drawRect.height)
         )
 
-        context.saveGState()
-        context.addPath(roundedPath(for: layout.cardRect, radius: layout.cardCornerRadius))
-        context.clip()
+        var pressGeometry: (tip: CGPoint, effect: PointerPressEffectGeometry)?
         if showsPressEffects, let press = pointer.press {
-            let pressTip = CGPoint(
-                x: drawRect.minX + press.location.x * drawRect.width,
-                y: canvasSize.height - (drawRect.minY + press.location.y * drawRect.height)
+            pressGeometry = (
+                CGPoint(
+                    x: drawRect.minX + press.location.x * drawRect.width,
+                    y: canvasSize.height - (drawRect.minY + press.location.y * drawRect.height)
+                ),
+                PointerPressEffectStyle.geometry(
+                    progress: press.progress,
+                    referenceHeight: layout.contentFillSize.height,
+                    cursorScale: pointerScale
+                )
             )
-            let effect = PointerPressEffectStyle.geometry(
-                progress: press.progress,
-                referenceHeight: layout.contentFillSize.height,
-                cursorScale: pointerScale
+        }
+        var artworkPlacement: (image: CGImage, rect: CGRect, transform: CGAffineTransform)?
+        if let resolved = artwork(for: pointer, in: pointerTimeline) {
+            let height = layout.contentFillSize.height
+                * PointerArtworkMetrics.heightRatio
+                * pointerScale
+                * resolved.intrinsicScale
+            let size = CGSize(width: height * resolved.aspectRatio, height: height)
+            let interactionScale = CGFloat(max(pointer.magnification, 0.1))
+            let transform = CGAffineTransform(translationX: tip.x, y: tip.y)
+                .rotated(by: -CGFloat(pointer.tiltDegrees * .pi / 180))
+                .scaledBy(x: interactionScale, y: interactionScale)
+            artworkPlacement = (
+                resolved.image,
+                CGRect(
+                    x: -resolved.anchor.x * size.width,
+                    y: -(1 - resolved.anchor.y) * size.height,
+                    width: size.width,
+                    height: size.height
+                ),
+                transform
             )
+        }
+
+        // The pointer is clipped to the rounded card like the screen pixels
+        // beneath it, but a full-canvas clip mask costs more than the whole
+        // draw. When everything drawn sits inside the card's corner-free
+        // interior the clip removes nothing, so skip it.
+        var bounds = CGRect.null
+        if let pressGeometry {
+            let reach = max(pressGeometry.effect.impactRadius, pressGeometry.effect.rippleRadius)
+                + pressGeometry.effect.rippleLineWidth
+            bounds = bounds.union(CGRect(
+                x: pressGeometry.tip.x - reach, y: pressGeometry.tip.y - reach,
+                width: reach * 2, height: reach * 2
+            ))
+        }
+        if let artworkPlacement {
+            bounds = bounds.union(artworkPlacement.rect.applying(artworkPlacement.transform))
+        }
+        guard !bounds.isNull else { return }
+        let card = flipped(layout.cardRect)
+        let radius = min(layout.cardCornerRadius, min(card.width, card.height) / 2)
+        let paddedBounds = bounds.insetBy(dx: -2, dy: -2)
+        let needsClip = !card.insetBy(dx: radius, dy: 0).contains(paddedBounds)
+            && !card.insetBy(dx: 0, dy: radius).contains(paddedBounds)
+
+        context.saveGState()
+        if needsClip {
+            context.addPath(roundedPath(for: layout.cardRect, radius: layout.cardCornerRadius))
+            context.clip()
+        }
+        if let pressGeometry {
+            let (pressTip, effect) = pressGeometry
             let accent = PointerPressEffectStyle.color
             context.saveGState()
             context.setFillColor(CGColor(
@@ -967,26 +1021,10 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
             context.restoreGState()
         }
 
-        if let resolved = artwork(for: pointer, in: pointerTimeline) {
-            let height = layout.contentFillSize.height
-                * PointerArtworkMetrics.heightRatio
-                * pointerScale
-                * resolved.intrinsicScale
-            let size = CGSize(width: height * resolved.aspectRatio, height: height)
+        if let artworkPlacement {
             context.setAlpha(CGFloat(min(max(pointer.opacity, 0), 1)))
-            context.translateBy(x: tip.x, y: tip.y)
-            context.rotate(by: -CGFloat(pointer.tiltDegrees * .pi / 180))
-            let interactionScale = CGFloat(max(pointer.magnification, 0.1))
-            context.scaleBy(x: interactionScale, y: interactionScale)
-            context.draw(
-                resolved.image,
-                in: CGRect(
-                    x: -resolved.anchor.x * size.width,
-                    y: -(1 - resolved.anchor.y) * size.height,
-                    width: size.width,
-                    height: size.height
-                )
-            )
+            context.concatenate(artworkPlacement.transform)
+            context.draw(artworkPlacement.image, in: artworkPlacement.rect)
         }
         context.restoreGState()
     }
