@@ -650,6 +650,9 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
     /// renderSeconds is CPU work: cache copies and overlays.
     private(set) var metalSeconds = 0.0
     private let screenLayerCache = StudioScreenLayerCache()
+    /// Retained so pixel-buffer pool reuse can't produce a false cache hit.
+    private var bubbleContentSource: CVPixelBuffer?
+    private var bubbleContentImage: CGImage?
     private(set) var reusedScreenFrameCount = 0
     private let bypassScreenCache = ProcessInfo.processInfo.environment["SCREENDROP_EXPORT_BYPASS_SCREEN_CACHE"] == "1"
     // Developer comparison switch; export settings and saved projects do not change.
@@ -812,52 +815,101 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
         // unaffected by the zoom transform, like a broadcast lower third.
         drawKeystrokeCaption(at: sourceTime, in: context)
 
-        if let cameraFrame,
-           layout.bubbleRect.width > 0,
-           let cameraImage = Self.makeImage(from: cameraFrame, colorSpace: colorSpace) {
-            let bubble = layout.bubbleRect
-            let imageSize = CGSize(width: cameraImage.width, height: cameraImage.height)
-            let scale = max(bubble.width / imageSize.width, bubble.height / imageSize.height)
-            let fillSize = CGSize(width: imageSize.width * scale, height: imageSize.height * scale)
-            let fillRect = CGRect(
-                x: bubble.midX - fillSize.width / 2,
-                y: bubble.midY - fillSize.height / 2,
-                width: fillSize.width,
-                height: fillSize.height
-            )
+        if let cameraFrame, layout.bubbleRect.width > 0 {
+            drawCameraBubble(cameraFrame, in: context)
+        }
 
-            // Shadow + hairline border match the live preview's bubble
-            // styling; the bubble sits over moving video, so both must be
-            // drawn per frame rather than baked into the backdrop.
-            let minDimension = min(canvasSize.width, canvasSize.height)
-            context.saveGState()
+        // The subtitle bar lives in canvas space - over the background too,
+        // not just the card - and above everything else, camera included.
+        drawSubtitleBar(at: sourceTime, in: context)
+    }
+
+    /// Shadow + hairline border match the live preview's bubble styling.
+    /// The bubble sits over moving video, so it composites every frame -
+    /// but its geometry is fixed for the export: the blurred shadow renders
+    /// once, the clipped camera layer once per camera frame, and each output
+    /// frame only blits them 1:1.
+    private func drawCameraBubble(_ cameraFrame: CVPixelBuffer, in context: CGContext) {
+        if bubbleContentSource !== cameraFrame {
+            bubbleContentImage = renderBubbleContent(cameraFrame)
+            bubbleContentSource = bubbleContentImage == nil ? nil : cameraFrame
+        }
+        guard let content = bubbleContentImage else { return }
+        if let shadow = bubbleShadow {
+            context.draw(shadow.image, in: shadow.rect)
+        }
+        context.draw(content, in: bubbleContentRect)
+    }
+
+    /// The bubble in bottom-up canvas pixels, grown to whole pixels so its
+    /// cached layer blits without resampling.
+    private var bubbleContentRect: CGRect { flipped(layout.bubbleRect).integral }
+
+    private lazy var bubbleShadow: (image: CGImage, rect: CGRect)? = {
+        let minDimension = min(canvasSize.width, canvasSize.height)
+        let blur = minDimension * 0.022
+        let offset = minDimension * 0.009
+        let rect = bubbleContentRect
+            .insetBy(dx: -(blur * 2 + offset), dy: -(blur * 2 + offset))
+            .intersection(CGRect(origin: .zero, size: canvasSize))
+            .integral
+        guard let image = renderLayer(covering: rect, draw: { context in
             context.setShadow(
-                offset: CGSize(width: 0, height: -minDimension * 0.009),
-                blur: minDimension * 0.022,
+                offset: CGSize(width: 0, height: -offset),
+                blur: blur,
                 color: CGColor(gray: 0, alpha: 0.35)
             )
-            context.addPath(roundedPath(for: bubble, radius: layout.bubbleCornerRadius))
+            context.addPath(roundedPath(for: layout.bubbleRect, radius: layout.bubbleCornerRadius))
             context.setFillColor(CGColor(gray: 0, alpha: 1))
             context.fillPath()
-            context.restoreGState()
+        }) else { return nil }
+        return (image, rect)
+    }()
 
+    private func renderBubbleContent(_ cameraFrame: CVPixelBuffer) -> CGImage? {
+        guard let cameraImage = Self.makeImage(from: cameraFrame, colorSpace: colorSpace) else { return nil }
+        let bubble = layout.bubbleRect
+        let imageSize = CGSize(width: cameraImage.width, height: cameraImage.height)
+        let scale = max(bubble.width / imageSize.width, bubble.height / imageSize.height)
+        let fillSize = CGSize(width: imageSize.width * scale, height: imageSize.height * scale)
+        let fillRect = CGRect(
+            x: bubble.midX - fillSize.width / 2,
+            y: bubble.midY - fillSize.height / 2,
+            width: fillSize.width,
+            height: fillSize.height
+        )
+        let minDimension = min(canvasSize.width, canvasSize.height)
+        return renderLayer(covering: bubbleContentRect) { context in
             context.saveGState()
             context.addPath(roundedPath(for: bubble, radius: layout.bubbleCornerRadius))
             context.clip()
             context.draw(cameraImage, in: flipped(fillRect))
             context.restoreGState()
 
-            context.saveGState()
             context.addPath(roundedPath(for: bubble.insetBy(dx: 0.5, dy: 0.5), radius: layout.bubbleCornerRadius))
             context.setStrokeColor(CGColor(gray: 1, alpha: 0.25))
             context.setLineWidth(max(1, minDimension * 0.0018))
             context.strokePath()
-            context.restoreGState()
         }
+    }
 
-        // The subtitle bar lives in canvas space - over the background too,
-        // not just the card - and above everything else, camera included.
-        drawSubtitleBar(at: sourceTime, in: context)
+    /// Renders canvas-space (bottom-up) drawing into an image covering only
+    /// `rect`, which must be in whole pixels.
+    private func renderLayer(covering rect: CGRect, draw: (CGContext) -> Void) -> CGImage? {
+        guard rect.width >= 1, rect.height >= 1,
+              let context = CGContext(
+                data: nil,
+                width: Int(rect.width),
+                height: Int(rect.height),
+                bitsPerComponent: 8,
+                bytesPerRow: 0,
+                space: colorSpace,
+                bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
+              ) else { return nil }
+        context.interpolationQuality = .high
+        context.translateBy(x: -rect.minX, y: -rect.minY)
+        draw(context)
+        return context.makeImage()
     }
 
     private func drawPointer(editorTime: TimeInterval, in context: CGContext) {
