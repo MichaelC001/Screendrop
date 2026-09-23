@@ -5,7 +5,7 @@
 //  Debug-only headless export timing. Launch the binary with
 //  `-benchmarkExport <path to .screendroprec>` and it renders that
 //  project's Studio export, prints the wall time to stdout, deletes the
-//  output, and exits - no windows, hotkeys, or updater. The exporter's
+//  output (unless `-benchmarkKeepOutput YES`), and exits - no windows, hotkeys, or updater. The exporter's
 //  own StudioExport log lines carry the per-stage breakdown.
 //
 
@@ -27,13 +27,15 @@ enum RecordingExportBenchmark {
                 let started = CFAbsoluteTimeGetCurrent()
                 let outputURL = try await RecordingStudioExporter().export(configuration) { _ in }
                 let elapsed = CFAbsoluteTimeGetCurrent() - started
-                try? FileManager.default.removeItem(at: outputURL)
+                let keepsOutput = UserDefaults.standard.bool(forKey: "benchmarkKeepOutput")
+                if !keepsOutput { try? FileManager.default.removeItem(at: outputURL) }
                 let settings = configuration.exportSettings
                 print(
                     "benchmarkExport seconds=\(String(format: "%.2f", elapsed))"
                         + " fps=\(settings.effectiveFrameRate.framesPerSecond)"
                         + " motionBlur=\(settings.effectiveMotionBlurEnabled)"
                         + " canvas=\(Int(configuration.canvasSize.width))x\(Int(configuration.canvasSize.height))"
+                        + (keepsOutput ? " output=\(outputURL.path)" : "")
                 )
                 exit(0)
             } catch {
