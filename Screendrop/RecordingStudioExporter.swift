@@ -142,6 +142,11 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
         }
     }
 
+    /// `@concurrent` keeps the frame loop off the caller's actor. Callers
+    /// are main-actor models, and approachable concurrency would otherwise
+    /// run this nonisolated async work - blocking reader calls included -
+    /// on the main thread alongside the UI.
+    @concurrent
     func export(
         _ configuration: Configuration,
         progress: @escaping @Sendable (Double) -> Void
