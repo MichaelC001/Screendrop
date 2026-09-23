@@ -51,7 +51,7 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
         /// Normalized top-left crop of the screen-video source.
         let videoCropRect: CGRect
         let clipTimeline: RecordingClipTimeline
-        let exportSettings: VideoCompressionSettings
+        var exportSettings: VideoCompressionSettings
         /// Non-nil when an imported soundtrack stands in for the recorded
         /// audio. It is already the finished cut's audio, so it plays flat
         /// from zero instead of being re-cut through the clip timeline.
