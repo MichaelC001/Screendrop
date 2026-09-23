@@ -24,6 +24,7 @@ import Foundation
 import ImageIO
 import OSLog
 import SwiftUI
+import VideoToolbox
 
 nonisolated final class RecordingStudioExporter: @unchecked Sendable {
     private static let logger = Logger(subsystem: "com.fayazahmed.Screendrop", category: "StudioExport")
@@ -265,18 +266,26 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
         writer.shouldOptimizeForNetworkUse = container.supportsFastStart
 
         let codec: AVVideoCodecType = configuration.exportSettings.codec == .hevc ? .hevc : .h264
+        var compressionProperties: [String: Any] = [
+            AVVideoAverageBitRateKey: Self.averageBitRate(
+                width: canvasWidth,
+                height: canvasHeight,
+                quality: configuration.exportSettings.quality
+            ),
+            AVVideoExpectedSourceFrameRateKey: timing.framesPerSecond
+        ]
+        if codec == .hevc {
+            // The hardware HEVC encoder is the export's ceiling at Retina
+            // sizes; its speed mode runs ~1.75x faster (52 -> 91 fps at
+            // 3760x2538 on M4 Pro) for ~1.5 dB PSNR, still above 40 dB.
+            // H.264's encoder ignores this flag.
+            compressionProperties[kVTCompressionPropertyKey_PrioritizeEncodingSpeedOverQuality as String] = true
+        }
         let videoSettings: [String: Any] = [
             AVVideoCodecKey: codec,
             AVVideoWidthKey: canvasWidth,
             AVVideoHeightKey: canvasHeight,
-            AVVideoCompressionPropertiesKey: [
-                AVVideoAverageBitRateKey: Self.averageBitRate(
-                    width: canvasWidth,
-                    height: canvasHeight,
-                    quality: configuration.exportSettings.quality
-                ),
-                AVVideoExpectedSourceFrameRateKey: timing.framesPerSecond
-            ] as [String: Any]
+            AVVideoCompressionPropertiesKey: compressionProperties
         ]
         let videoInput = AVAssetWriterInput(mediaType: .video, outputSettings: videoSettings)
         videoInput.expectsMediaDataInRealTime = false
