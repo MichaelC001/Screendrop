@@ -9,19 +9,20 @@ nonisolated final class StudioScreenLayerCache {
     private let byteLimit = 64 * 1024 * 1024
     private var source: CVPixelBuffer?
     private var rect: CGRect?
-    private var pixels: Data?
+    /// Kept across invalidations: the canvas size is fixed for an export,
+    /// so one allocation serves every capture.
+    private var pixels = Data()
     private var width = 0
     private var height = 0
 
     func invalidate() {
         source = nil
         rect = nil
-        pixels = nil
     }
 
     /// Completes the copy before the compositor locks the buffer for overlays.
     func restore(source: CVPixelBuffer, rect: CGRect, into destination: CVPixelBuffer) -> Bool {
-        guard self.source === source, self.rect == rect, let pixels,
+        guard self.source === source, self.rect == rect,
               width == CVPixelBufferGetWidth(destination), height == CVPixelBufferGetHeight(destination),
               CVPixelBufferGetPixelFormatType(destination) == kCVPixelFormatType_32BGRA,
               CVPixelBufferLockBaseAddress(destination, []) == kCVReturnSuccess else { return false }
@@ -48,9 +49,9 @@ nonisolated final class StudioScreenLayerCache {
             invalidate()
             return
         }
-        var snapshot = Data(count: cost)
+        if pixels.count != cost { pixels = Data(count: cost) }
         let stride = CVPixelBufferGetBytesPerRow(rendered)
-        snapshot.withUnsafeMutableBytes { bytes in
+        pixels.withUnsafeMutableBytes { bytes in
             for row in 0..<height {
                 memcpy(bytes.baseAddress!.advanced(by: row * width * 4), base.advanced(by: row * stride), width * 4)
             }
@@ -59,6 +60,5 @@ nonisolated final class StudioScreenLayerCache {
         self.rect = rect
         self.width = width
         self.height = height
-        pixels = snapshot
     }
 }
