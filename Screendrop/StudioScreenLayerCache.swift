@@ -6,7 +6,7 @@ import Foundation
 /// Retaining the decoded source prevents pixel-buffer pool address reuse
 /// from turning a different frame into a false cache hit. Used serially.
 nonisolated final class StudioScreenLayerCache {
-    private let byteLimit = 64 * 1024 * 1024
+    private static let byteLimit = 64 * 1024 * 1024
     private var source: CVPixelBuffer?
     private var rect: CGRect?
     /// Kept across invalidations: the canvas size is fixed for an export,
@@ -14,6 +14,12 @@ nonisolated final class StudioScreenLayerCache {
     private var pixels = Data()
     private var width = 0
     private var height = 0
+
+    /// Whether a canvas this size fits the cache, so a caller planning a
+    /// restore ahead of the capture never plans one that cannot happen.
+    static func canCapture(width: Int, height: Int) -> Bool {
+        width * height * 4 <= byteLimit
+    }
 
     func invalidate() {
         source = nil
@@ -43,7 +49,7 @@ nonisolated final class StudioScreenLayerCache {
         let width = CVPixelBufferGetWidth(rendered)
         let height = CVPixelBufferGetHeight(rendered)
         let cost = width * height * 4
-        guard cost <= byteLimit,
+        guard cost <= Self.byteLimit,
               CVPixelBufferGetPixelFormatType(rendered) == kCVPixelFormatType_32BGRA,
               let base = CVPixelBufferGetBaseAddress(rendered) else {
             invalidate()

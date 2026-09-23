@@ -433,6 +433,30 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
             Self.logger.info("Export frames=\(renderedFrames) fps=\(timing.framesPerSecond) motionBlur=\(timing.motionBlurEnabled) Metal blur frames=\(compositor.metalFrameCount) reusedScreenFrames=\(compositor.reusedScreenFrameCount) renderSeconds=\(renderSeconds) metalSeconds=\(compositor.metalSeconds) decodeSeconds=\(decodeSeconds) writerWaitSeconds=\(writerWaitSeconds)")
         }
 
+        var inFlight: (frame: StudioFrameCompositor.PendingFrame, index: Int)?
+        func finishAndAppend(_ begun: StudioFrameCompositor.PendingFrame, at index: Int) async throws {
+            let renderStart = CFAbsoluteTimeGetCurrent()
+            try autoreleasepool {
+                try compositor.finish(begun)
+            }
+            renderSeconds += CFAbsoluteTimeGetCurrent() - renderStart
+            renderedFrames += 1
+
+            let waitStart = CFAbsoluteTimeGetCurrent()
+            while !input.isReadyForMoreMediaData {
+                if cancelFlag.isCancelled { throw ExportError.cancelled }
+                try await Task.sleep(nanoseconds: 2_000_000)
+            }
+            writerWaitSeconds += CFAbsoluteTimeGetCurrent() - waitStart
+
+            if !adaptor.append(begun.destination, withPresentationTime: timing.presentationTime(forFrame: index)) {
+                throw ExportError.writerFailed(nil)
+            }
+            if index % 10 == 0 {
+                progress(min(0.98, Double(index) / Double(frameCount)))
+            }
+        }
+
         for frame in 0..<frameCount {
             if cancelFlag.isCancelled { throw ExportError.cancelled }
             let editorTime = timing.time(forFrame: frame)
@@ -458,13 +482,6 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
             // render.
             guard let sourceBuffer = currentBuffer ?? pending?.buffer else { break }
 
-            let waitStart = CFAbsoluteTimeGetCurrent()
-            while !input.isReadyForMoreMediaData {
-                if cancelFlag.isCancelled { throw ExportError.cancelled }
-                try await Task.sleep(nanoseconds: 2_000_000)
-            }
-            writerWaitSeconds += CFAbsoluteTimeGetCurrent() - waitStart
-
             guard let pool = adaptor.pixelBufferPool else {
                 throw ExportError.writerFailed(nil)
             }
@@ -479,27 +496,25 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
             let sourceRepeats = (pending == nil || pending!.time > nextTime)
                 && clipTimeline.location(at: nextTime)?.segmentID == location.segmentID
             let renderStart = CFAbsoluteTimeGetCurrent()
-            try autoreleasepool {
-                try compositor.render(
-                    screenFrame: sourceBuffer,
-                    cameraFrame: cameraBuffer,
-                    editorTime: editorTime,
-                    sourceTime: sourceTime,
-                    sourceRepeatsOnNextFrame: sourceRepeats,
-                    into: destinationBuffer
-                )
-            }
+            let begun = compositor.begin(
+                screenFrame: sourceBuffer,
+                cameraFrame: cameraBuffer,
+                editorTime: editorTime,
+                sourceTime: sourceTime,
+                sourceRepeatsOnNextFrame: sourceRepeats,
+                into: destinationBuffer
+            )
             renderSeconds += CFAbsoluteTimeGetCurrent() - renderStart
-            renderedFrames += 1
 
-            let pts = timing.presentationTime(forFrame: frame)
-            if !adaptor.append(destinationBuffer, withPresentationTime: pts) {
-                throw ExportError.writerFailed(nil)
+            // The GPU renders this frame while the previous one gets its
+            // overlays and goes to the encoder.
+            if let previous = inFlight {
+                try await finishAndAppend(previous.frame, at: previous.index)
             }
-
-            if frame % 10 == 0 {
-                progress(min(0.98, Double(frame) / Double(frameCount)))
-            }
+            inFlight = (begun, frame)
+        }
+        if let previous = inFlight {
+            try await finishAndAppend(previous.frame, at: previous.index)
         }
         input.markAsFinished()
     }
@@ -655,10 +670,12 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
     private var metalRenderer: StudioMetalScreenRenderer?
     private var metalFailed = false
     private(set) var metalFrameCount = 0
-    /// Wall time inside the Metal pass, GPU wait included. The rest of
-    /// renderSeconds is CPU work: cache copies and overlays.
+    /// Wall time submitting and waiting on Metal passes. With a frame in
+    /// flight this is only the GPU time the CPU could not overlap.
     private(set) var metalSeconds = 0.0
     private let screenLayerCache = StudioScreenLayerCache()
+    /// The layer the cache will hold once every begun frame finishes.
+    private var plannedCacheKey: (source: CVPixelBuffer, rect: CGRect)?
     /// Retained so pixel-buffer pool reuse can't produce a false cache hit.
     private var bubbleContentSource: CVPixelBuffer?
     private var bubbleContentImage: CGImage?
@@ -723,45 +740,97 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
         return RecordingVideoCropGeometry.viewport(base, crop: videoCropRect)
     }
 
-    func render(
+    /// A frame whose screen layer may still be rendering on the GPU.
+    struct PendingFrame {
+        fileprivate let screenFrame: CVPixelBuffer
+        fileprivate let cameraFrame: CVPixelBuffer?
+        fileprivate let editorTime: TimeInterval
+        fileprivate let sourceTime: TimeInterval
+        fileprivate let sampleRects: [CGRect]
+        fileprivate let shouldCacheScreen: Bool
+        /// Set when the previous frame leaves this exact screen layer in the
+        /// cache; the restore itself waits for finish, which runs in order.
+        fileprivate let plansRestore: Bool
+        fileprivate let submission: StudioMetalScreenRenderer.Submission?
+        let destination: CVPixelBuffer
+    }
+
+    /// Starts a frame: resolves its shutter and submits the GPU screen pass
+    /// without waiting, so the caller can finish the previous frame while
+    /// this one renders. Frames must be finished in the order they began.
+    func begin(
         screenFrame: CVPixelBuffer,
         cameraFrame: CVPixelBuffer?,
         editorTime: TimeInterval,
         sourceTime: TimeInterval,
         sourceRepeatsOnNextFrame: Bool,
         into destination: CVPixelBuffer
-    ) throws {
-        // Metal completes before the CPU locks this IOSurface for overlays.
+    ) -> PendingFrame {
         let sampleRects = timing.screenSampleRects(at: editorTime) { time in
             layout.frameRect(for: viewportFrame(at: time))
         }
         let sampleCount = sampleRects.count
-        let reusedScreen = !bypassScreenCache && sampleCount == 1 && screenLayerCache.restore(
-            source: screenFrame, rect: sampleRects[0], into: destination
-        )
-        if reusedScreen { reusedScreenFrameCount += 1 }
-        else { screenLayerCache.invalidate() }
+        let plansRestore = !bypassScreenCache && sampleCount == 1
+            && plannedCacheKey.map { $0.source === screenFrame && $0.rect == sampleRects[0] } == true
         // Cache only a settled layer that can be reused on the next tick.
         // Moving frames and continuously changing video avoid the extra copy.
         let shouldCacheScreen = !bypassScreenCache && sourceRepeatsOnNextFrame && sampleCount == 1
             && sampleRects[0] == layout.frameRect(for: viewportFrame(at: editorTime + timing.frameInterval))
+            && StudioScreenLayerCache.canCapture(width: Int(canvasSize.width), height: Int(canvasSize.height))
+        // Mirrors the cache transitions finish(_:) applies in order: a
+        // restored layer stays cached, a newly cached one replaces it, and
+        // anything else clears it.
+        if !shouldCacheScreen {
+            plannedCacheKey = nil
+        } else if !plansRestore {
+            plannedCacheKey = (screenFrame, sampleRects[0])
+        }
+
+        let submission = plansRestore ? nil : submitMetal(
+            screenFrame: screenFrame, sampleRects: sampleRects, into: destination
+        )
+        return PendingFrame(
+            screenFrame: screenFrame,
+            cameraFrame: cameraFrame,
+            editorTime: editorTime,
+            sourceTime: sourceTime,
+            sampleRects: sampleRects,
+            shouldCacheScreen: shouldCacheScreen,
+            plansRestore: plansRestore,
+            submission: submission,
+            destination: destination
+        )
+    }
+
+    /// Completes a frame begun earlier: waits for its screen pass, then draws
+    /// the CPU overlays into its destination.
+    func finish(_ frame: PendingFrame) throws {
+        let destination = frame.destination
+        let screenFrame = frame.screenFrame
+        let sampleRects = frame.sampleRects
+        let reusedScreen = frame.plansRestore && screenLayerCache.restore(
+            source: screenFrame, rect: sampleRects[0], into: destination
+        )
+        if reusedScreen { reusedScreenFrameCount += 1 }
+        else { screenLayerCache.invalidate() }
+
+        // Metal completes before the CPU locks this IOSurface for overlays.
+        // A planned restore that failed renders its layer now instead.
         var renderedWithMetal = false
-        if !reusedScreen, !forceCoreGraphics, !metalFailed,
-           StudioMetalScreenRenderer.shouldAccelerate(screenFrame: screenFrame, sampleRects: sampleRects) {
-            if metalRenderer == nil {
-                metalRenderer = StudioMetalScreenRenderer(
-                    canvasSize: canvasSize, backdrop: backdrop,
-                    cardPath: roundedPath(for: layout.cardRect, radius: layout.cardCornerRadius), colorSpace: colorSpace
-                )
-            }
-            let metalStart = CFAbsoluteTimeGetCurrent()
-            renderedWithMetal = metalRenderer?.render(
-                screenFrame: screenFrame, sampleRects: sampleRects, into: destination
-            ) == true
-            metalSeconds += CFAbsoluteTimeGetCurrent() - metalStart
+        if !reusedScreen,
+           let submission = frame.submission ?? submitMetal(
+               screenFrame: screenFrame, sampleRects: sampleRects, into: destination
+           ) {
+            let waitStart = CFAbsoluteTimeGetCurrent()
+            renderedWithMetal = metalRenderer?.wait(for: submission) == true
+            metalSeconds += CFAbsoluteTimeGetCurrent() - waitStart
             if renderedWithMetal { metalFrameCount += 1 }
             else { metalFailed = true }
         }
+        let shouldCacheScreen = frame.shouldCacheScreen
+        let editorTime = frame.editorTime
+        let sourceTime = frame.sourceTime
+        let cameraFrame = frame.cameraFrame
         CVPixelBufferLockBaseAddress(destination, [])
         defer { CVPixelBufferUnlockBaseAddress(destination, []) }
 
@@ -831,6 +900,31 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
         // The subtitle bar lives in canvas space - over the background too,
         // not just the card - and above everything else, camera included.
         drawSubtitleBar(at: sourceTime, in: context)
+    }
+
+    private func submitMetal(
+        screenFrame: CVPixelBuffer,
+        sampleRects: [CGRect],
+        into destination: CVPixelBuffer
+    ) -> StudioMetalScreenRenderer.Submission? {
+        guard !forceCoreGraphics, !metalFailed,
+              StudioMetalScreenRenderer.shouldAccelerate(screenFrame: screenFrame, sampleRects: sampleRects)
+        else { return nil }
+        if metalRenderer == nil {
+            metalRenderer = StudioMetalScreenRenderer(
+                canvasSize: canvasSize, backdrop: backdrop,
+                cardPath: roundedPath(for: layout.cardRect, radius: layout.cardCornerRadius), colorSpace: colorSpace
+            )
+        }
+        let submitStart = CFAbsoluteTimeGetCurrent()
+        defer { metalSeconds += CFAbsoluteTimeGetCurrent() - submitStart }
+        guard let submission = metalRenderer?.submit(
+            screenFrame: screenFrame, sampleRects: sampleRects, into: destination
+        ) else {
+            metalFailed = true
+            return nil
+        }
+        return submission
     }
 
     /// Shadow + hairline border match the live preview's bubble styling.

@@ -5,7 +5,9 @@ import MetalPerformanceShaders
 
 /// Export-local GPU resources. One command buffer evaluates the complete
 /// shutter; no full-resolution intermediate image is allocated per sample.
-/// The caller serializes frames and draws the existing overlays afterwards.
+/// The caller may keep one frame in flight - submitting the next frame's
+/// pass while it draws the previous frame's overlays - and must wait on each
+/// submission before touching that frame's pixels on the CPU.
 nonisolated final class StudioMetalScreenRenderer {
     private let device: MTLDevice
     private let queue: MTLCommandQueue
@@ -64,9 +66,18 @@ nonisolated final class StudioMetalScreenRenderer {
         self.downsampler.edgeMode = .clamp
     }
 
+    /// A committed pass. It retains the Core Video texture wrappers, whose
+    /// textures alone do not keep their backing allocations alive.
+    struct Submission {
+        fileprivate let command: MTLCommandBuffer
+        fileprivate let textures: [CVMetalTexture]
+    }
+
     /// Rectangles use the same top-left canvas coordinates as StudioLayout.
-    /// Returns false before touching overlays if Metal cannot render a frame.
-    func render(screenFrame: CVPixelBuffer, sampleRects: [CGRect], into destination: CVPixelBuffer) -> Bool {
+    /// Returns nil, without encoding anything, if Metal cannot take a frame.
+    /// Commands on one queue run in order, so the shared downsample texture
+    /// is never overwritten while an earlier pass still reads it.
+    func submit(screenFrame: CVPixelBuffer, sampleRects: [CGRect], into destination: CVPixelBuffer) -> Submission? {
         guard (1...24).contains(sampleRects.count),
             sampleRects.allSatisfy({
                 $0.width > 0 && $0.height > 0 && $0.minX.isFinite && $0.minY.isFinite && $0.width.isFinite
@@ -79,7 +90,7 @@ nonisolated final class StudioMetalScreenRenderer {
             outputTexture.width == backdropTexture.width,
             outputTexture.height == backdropTexture.height,
             let command = queue.makeCommandBuffer()
-        else { return false }
+        else { return nil }
 
         // Bound the per-pixel filter footprint for very large reductions.
         // Leave up to 2x resolution for the shutter's scale-aware Lanczos
@@ -96,7 +107,7 @@ nonisolated final class StudioMetalScreenRenderer {
                 descriptor.storageMode = .private
                 downsampledTexture = device.makeTexture(descriptor: descriptor)
             }
-            guard let downsampledTexture else { return false }
+            guard let downsampledTexture else { return nil }
             downsampler.encode(
                 commandBuffer: command, sourceTexture: sourceTexture,
                 destinationTexture: downsampledTexture)
@@ -108,8 +119,8 @@ nonisolated final class StudioMetalScreenRenderer {
             sampleRects.allSatisfy({
                 $0.width * 4 >= CGFloat(sampledTexture.width) && $0.height * 4 >= CGFloat(sampledTexture.height)
             })
-        else { return false }
-        guard let encoder = command.makeComputeCommandEncoder() else { return false }
+        else { return nil }
+        guard let encoder = command.makeComputeCommandEncoder() else { return nil }
 
         var count = UInt32(sampleRects.count)
         let rects = sampleRects.map { SIMD4<Float>(Float($0.minX), Float($0.minY), Float($0.width), Float($0.height)) }
@@ -129,10 +140,14 @@ nonisolated final class StudioMetalScreenRenderer {
             threadsPerThreadgroup: MTLSize(width: width, height: height, depth: 1))
         encoder.endEncoding()
         command.commit()
-        // Keep the CVMetalTexture wrappers alive until GPU completion. The
-        // texture alone does not retain its Core Video backing allocation.
-        withExtendedLifetime((source, output)) { command.waitUntilCompleted() }
-        return command.status == .completed
+        return Submission(command: command, textures: [source, output])
+    }
+
+    /// Blocks until the pass finishes. False means the frame has no screen
+    /// layer and must be drawn another way.
+    func wait(for submission: Submission) -> Bool {
+        withExtendedLifetime(submission.textures) { submission.command.waitUntilCompleted() }
+        return submission.command.status == .completed
     }
 
     /// Every frame - settled or blurred - renders on the GPU, so an export
