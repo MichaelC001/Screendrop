@@ -606,7 +606,12 @@ nonisolated private final class CameraFrameFeed: @unchecked Sendable {
         let reader = try AVAssetReader(asset: asset)
         let output = AVAssetReaderTrackOutput(
             track: track,
-            outputSettings: [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
+            outputSettings: [
+                kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+                // IOSurface-backed so the bubble scaler can read it on the GPU.
+                kCVPixelBufferMetalCompatibilityKey as String: true,
+                kCVPixelBufferIOSurfacePropertiesKey as String: [:]
+            ]
         )
         output.alwaysCopiesSampleData = false
         reader.add(output)
@@ -969,10 +974,14 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
         return (image, rect)
     }()
 
+    private lazy var cameraScaler: StudioCameraBubbleScaler? = forceCoreGraphics
+        ? nil
+        : StudioCameraBubbleScaler(size: bubbleContentRect.size, colorSpace: colorSpace)
+
     private func renderBubbleContent(_ cameraFrame: CVPixelBuffer) -> CGImage? {
-        guard let cameraImage = Self.makeImage(from: cameraFrame, colorSpace: colorSpace) else { return nil }
         let bubble = layout.bubbleRect
-        let imageSize = CGSize(width: cameraImage.width, height: cameraImage.height)
+        let imageSize = CGSize(width: CVPixelBufferGetWidth(cameraFrame), height: CVPixelBufferGetHeight(cameraFrame))
+        guard imageSize.width > 0, imageSize.height > 0 else { return nil }
         let scale = max(bubble.width / imageSize.width, bubble.height / imageSize.height)
         let fillSize = CGSize(width: imageSize.width * scale, height: imageSize.height * scale)
         let fillRect = CGRect(
@@ -982,11 +991,24 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
             height: fillSize.height
         )
         let minDimension = min(canvasSize.width, canvasSize.height)
-        return renderLayer(covering: bubbleContentRect) { context in
+        let layerRect = bubbleContentRect
+        // The GPU scales straight into the layer's pixel box, so the draw
+        // below is 1:1; Core Graphics resamples the full frame otherwise.
+        let scaledCamera = cameraScaler?.scale(
+            cameraFrame,
+            fillRect: fillRect.offsetBy(dx: -layerRect.minX, dy: -(canvasSize.height - layerRect.maxY))
+        )
+        let cameraImage = scaledCamera == nil ? Self.makeImage(from: cameraFrame, colorSpace: colorSpace) : nil
+        guard scaledCamera != nil || cameraImage != nil else { return nil }
+        return renderLayer(covering: layerRect) { context in
             context.saveGState()
             context.addPath(roundedPath(for: bubble, radius: layout.bubbleCornerRadius))
             context.clip()
-            context.draw(cameraImage, in: flipped(fillRect))
+            if let scaledCamera {
+                context.draw(scaledCamera, in: layerRect)
+            } else if let cameraImage {
+                context.draw(cameraImage, in: flipped(fillRect))
+            }
             context.restoreGState()
 
             context.addPath(roundedPath(for: bubble.insetBy(dx: 0.5, dy: 0.5), radius: layout.bubbleCornerRadius))
