@@ -10,9 +10,10 @@
 //  project imported a soundtrack to replace them.
 //
 //  Everything static - the background fill and the card shadow - is
-//  rendered once into a backdrop image. A Metal compute pass accelerates
-//  eligible motion-blur frames; Core Graphics handles the remaining frames
-//  and the per-frame pointer, camera, and caption overlays.
+//  rendered once into a backdrop image. A Metal compute pass draws the
+//  screen layer for every frame, blurred or settled; Core Graphics handles
+//  rare fallback frames and the per-frame pointer, camera, and caption
+//  overlays.
 //
 
 import AppKit

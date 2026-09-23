@@ -102,8 +102,8 @@ nonisolated final class StudioMetalScreenRenderer {
                 destinationTexture: downsampledTexture)
             sampledTexture = downsampledTexture
         }
-        // An extreme discontinuity can produce a much smaller rect than the
-        // rest of the shutter. Let Core Graphics handle that rare case.
+        // shouldAccelerate screens these out first; this only guards callers
+        // that skip it.
         guard
             sampleRects.allSatisfy({
                 $0.width * 4 >= CGFloat(sampledTexture.width) && $0.height * 4 >= CGFloat(sampledTexture.height)
@@ -135,17 +135,20 @@ nonisolated final class StudioMetalScreenRenderer {
         return command.status == .completed
     }
 
-    /// Keep light blur on reduced footage on the existing spatial filter.
-    /// Core Graphics' reduction differs most from Lanczos when there are
-    /// only a few shutter samples. This is a per-frame quality fallback,
-    /// not a GPU failure; later frames can still use Metal.
+    /// Every frame - settled or blurred - renders on the GPU, so an export
+    /// never alternates between two reconstruction filters. The one
+    /// exception is an extreme discontinuity inside a shutter, where one
+    /// rect is far smaller than the texture the others share; Core Graphics
+    /// draws that frame. This is a per-frame fallback, not a GPU failure.
     static func shouldAccelerate(screenFrame: CVPixelBuffer, sampleRects: [CGRect]) -> Bool {
-        guard sampleRects.count > 1 else { return false }
-        let reducesImage = sampleRects.contains {
-            $0.width < CGFloat(CVPixelBufferGetWidth(screenFrame))
-                || $0.height < CGFloat(CVPixelBufferGetHeight(screenFrame))
+        guard let widest = sampleRects.map(\.width).max(),
+              let tallest = sampleRects.map(\.height).max() else { return false }
+        // Mirrors the downsample bound in render(screenFrame:sampleRects:into:).
+        let sampledWidth = min(CGFloat(CVPixelBufferGetWidth(screenFrame)), ceil(widest * 2))
+        let sampledHeight = min(CGFloat(CVPixelBufferGetHeight(screenFrame)), ceil(tallest * 2))
+        return sampleRects.allSatisfy {
+            $0.width * 4 >= sampledWidth && $0.height * 4 >= sampledHeight
         }
-        return !reducesImage || sampleRects.count >= 8
     }
 
     private func texture(for buffer: CVPixelBuffer, usage: MTLTextureUsage) -> CVMetalTexture? {
