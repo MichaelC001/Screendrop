@@ -403,7 +403,10 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
         let duration = clipTimeline.duration
         let frameCount = timing.frameCount(for: duration)
 
+        var decodeSeconds = 0.0
         func nextSourceFrame() -> (buffer: CVPixelBuffer, time: TimeInterval)? {
+            let decodeStart = CFAbsoluteTimeGetCurrent()
+            defer { decodeSeconds += CFAbsoluteTimeGetCurrent() - decodeStart }
             while let sampleBuffer = output.copyNextSampleBuffer() {
                 guard let buffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { continue }
                 return (buffer, CMSampleBufferGetPresentationTimeStamp(sampleBuffer).seconds)
@@ -418,7 +421,7 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
         var writerWaitSeconds = 0.0
         var renderedFrames = 0
         defer {
-            Self.logger.info("Export frames=\(renderedFrames) fps=\(timing.framesPerSecond) motionBlur=\(timing.motionBlurEnabled) Metal blur frames=\(compositor.metalFrameCount) reusedScreenFrames=\(compositor.reusedScreenFrameCount) renderSeconds=\(renderSeconds) writerWaitSeconds=\(writerWaitSeconds)")
+            Self.logger.info("Export frames=\(renderedFrames) fps=\(timing.framesPerSecond) motionBlur=\(timing.motionBlurEnabled) Metal blur frames=\(compositor.metalFrameCount) reusedScreenFrames=\(compositor.reusedScreenFrameCount) renderSeconds=\(renderSeconds) metalSeconds=\(compositor.metalSeconds) decodeSeconds=\(decodeSeconds) writerWaitSeconds=\(writerWaitSeconds)")
         }
 
         for frame in 0..<frameCount {
@@ -643,6 +646,9 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
     private var metalRenderer: StudioMetalScreenRenderer?
     private var metalFailed = false
     private(set) var metalFrameCount = 0
+    /// Wall time inside the Metal pass, GPU wait included. The rest of
+    /// renderSeconds is CPU work: cache copies and overlays.
+    private(set) var metalSeconds = 0.0
     private let screenLayerCache = StudioScreenLayerCache()
     private(set) var reusedScreenFrameCount = 0
     private let bypassScreenCache = ProcessInfo.processInfo.environment["SCREENDROP_EXPORT_BYPASS_SCREEN_CACHE"] == "1"
@@ -736,9 +742,11 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
                     cardPath: roundedPath(for: layout.cardRect, radius: layout.cardCornerRadius), colorSpace: colorSpace
                 )
             }
+            let metalStart = CFAbsoluteTimeGetCurrent()
             renderedWithMetal = metalRenderer?.render(
                 screenFrame: screenFrame, sampleRects: sampleRects, into: destination
             ) == true
+            metalSeconds += CFAbsoluteTimeGetCurrent() - metalStart
             if renderedWithMetal { metalFrameCount += 1 }
             else { metalFailed = true }
         }
