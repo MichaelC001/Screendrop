@@ -17,25 +17,25 @@ import SwiftUI
 enum InspectorMetrics {
     /// Horizontal inset applied to every section's content.
     static let horizontalPadding: CGFloat = 12
-    /// Vertical padding above/below each section's content.
-    static let sectionVerticalPadding: CGFloat = 12
+    /// Vertical padding above/below each section's content. Sections are
+    /// separated by this whitespace alone - no rules - so it stays generous.
+    static let sectionVerticalPadding: CGFloat = 14
     /// Gap between a section header and its content.
     static let headerSpacing: CGFloat = 10
     /// Gap between stacked rows inside a section.
     static let rowSpacing: CGFloat = 8
     /// Gap between a group sub-label and its content.
     static let groupLabelSpacing: CGFloat = 7
+    /// Gap between labelled groups inside one section.
+    static let groupSpacing: CGFloat = 16
 
-    /// The one true height for every interactive field (menus, steppers,
-    /// pickers, segmented controls).
-    static let controlHeight: CGFloat = 24
-    /// Taller scrubber rows give the embedded label and editable value enough
-    /// breathing room without making the inspector feel loose.
-    static let sliderHeight: CGFloat = 32
-    static let sliderValueWidth: CGFloat = 60
+    /// The one true height for every interactive field (scrub fields, menus,
+    /// steppers, pickers, segmented controls).
+    static let controlHeight: CGFloat = 28
+    static let sliderHeight: CGFloat = controlHeight
     /// Corner radius for fields and segmented tracks.
-    static let fieldRadius: CGFloat = 5
-    static let sliderRadius: CGFloat = 8
+    static let fieldRadius: CGFloat = 7
+    static let sliderRadius: CGFloat = fieldRadius
     /// Shared inner inset for compound controls such as segmented pickers,
     /// tool grids, and placement surfaces.
     static let controlInset: CGFloat = 2
@@ -64,6 +64,16 @@ enum InspectorControlPalette {
         Color.primary.opacity(colorScheme == .dark ? 0.10 : 0.075)
     }
 
+    /// A selected segment or tool: a raised white chip in light mode, a
+    /// brighter fill in dark mode. No outline in either.
+    static func selectedChipFill(for colorScheme: ColorScheme) -> Color {
+        colorScheme == .dark ? Color.white.opacity(0.13) : .white
+    }
+
+    static func selectedChipShadow(for colorScheme: ColorScheme) -> Color {
+        colorScheme == .dark ? .clear : Color.black.opacity(0.14)
+    }
+
     static var hoverFill: Color { Color.primary.opacity(0.04) }
     static var border: Color { Color.primary.opacity(0.10) }
     static var selectedForeground: Color { Color.primary.opacity(0.92) }
@@ -80,11 +90,13 @@ extension Font {
     static let inspectorValue = Font.system(size: 11, weight: .medium)
     /// Numeric readout for sliders/steppers.
     static let inspectorNumeric = Font.system(size: 11, weight: .medium).monospacedDigit()
+    /// Text labels inside segmented controls.
+    static let inspectorSegment = Font.system(size: 11, weight: .medium)
 }
 
 // MARK: - Field chrome
 
-/// The uniform "field" background - a subtly filled, hairline-stroked rounded
+/// The uniform "field" background - a subtly filled, borderless rounded
 /// rectangle at the standard control height. Used by every input affordance so
 /// menus, steppers and pickers share one silhouette.
 private struct InspectorFieldChrome: ViewModifier {
@@ -97,21 +109,9 @@ private struct InspectorFieldChrome: ViewModifier {
             .frame(height: height)
             .background(
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .fill(fill)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .stroke(stroke, lineWidth: 0.5)
+                    .fill(InspectorControlPalette.trackFill(for: colorScheme))
             )
             .contentShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-    }
-
-    private var fill: Color {
-        colorScheme == .dark ? Color.white.opacity(0.055) : Color.black.opacity(0.035)
-    }
-
-    private var stroke: Color {
-        colorScheme == .dark ? Color.white.opacity(0.10) : Color.black.opacity(0.08)
     }
 }
 
@@ -140,7 +140,7 @@ struct InspectorSection<Content: View, Accessory: View>: View {
             HStack(spacing: 6) {
                 Text(title)
                     .font(.inspectorSectionHeader)
-                    .foregroundStyle(.primary.opacity(0.85))
+                    .foregroundStyle(.secondary)
 
                 Spacer(minLength: 0)
 
@@ -166,6 +166,9 @@ extension InspectorSection where Accessory == EmptyView {
 /// own independent hit targets.
 struct InspectorDisclosureSection<Content: View, Accessory: View>: View {
     let title: String
+    /// A short readout of the section's active state, shown while collapsed
+    /// so the whole setup can be scanned without expanding anything.
+    var summary: String? = nil
     @Binding var isExpanded: Bool
     @ViewBuilder var accessory: () -> Accessory
     @ViewBuilder var content: () -> Content
@@ -180,7 +183,17 @@ struct InspectorDisclosureSection<Content: View, Accessory: View>: View {
                     HStack(spacing: 6) {
                         Text(title)
                             .font(.inspectorSectionHeader)
-                            .foregroundStyle(.primary.opacity(0.88))
+                            .foregroundStyle(isExpanded || isHeaderHovering ? Color.primary.opacity(0.85) : Color.secondary)
+                            .fixedSize()
+
+                        if let summary, !isExpanded {
+                            Text(summary)
+                                .font(.inspectorLabel)
+                                .foregroundStyle(.tertiary)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                                .transition(.opacity)
+                        }
 
                         Spacer(minLength: 0)
                     }
@@ -189,7 +202,7 @@ struct InspectorDisclosureSection<Content: View, Accessory: View>: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(title)
-                .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
+                .accessibilityValue(accessibilityValue)
                 .accessibilityHint(isExpanded ? "Collapse section" : "Expand section")
 
                 accessory()
@@ -207,15 +220,14 @@ struct InspectorDisclosureSection<Content: View, Accessory: View>: View {
                 .accessibilityHidden(true)
             }
             .padding(.horizontal, InspectorMetrics.horizontalPadding)
-            .frame(height: 38)
-            .background(isHeaderHovering ? Color.primary.opacity(0.025) : .clear)
+            .frame(height: 36)
             .onHover { isHeaderHovering = $0 }
 
             VStack(alignment: .leading, spacing: 0) {
                 if isExpanded {
                     content()
                         .padding(.horizontal, InspectorMetrics.horizontalPadding)
-                        .padding(.top, 4)
+                        .padding(.top, 2)
                         .padding(.bottom, InspectorMetrics.sectionVerticalPadding)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .transition(.opacity.combined(with: .move(edge: .top)))
@@ -228,12 +240,12 @@ struct InspectorDisclosureSection<Content: View, Accessory: View>: View {
             .clipped()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .overlay(alignment: .bottom) {
-            Rectangle()
-                .fill(Color(nsColor: .separatorColor).opacity(0.45))
-                .frame(height: 0.5)
-                .padding(.horizontal, InspectorMetrics.horizontalPadding)
-        }
+    }
+
+    private var accessibilityValue: String {
+        let state = isExpanded ? "Expanded" : "Collapsed"
+        guard let summary else { return state }
+        return "\(state), \(summary)"
     }
 
     private func toggleExpansion() {
@@ -246,11 +258,13 @@ struct InspectorDisclosureSection<Content: View, Accessory: View>: View {
 extension InspectorDisclosureSection where Accessory == EmptyView {
     init(
         _ title: String,
+        summary: String? = nil,
         isExpanded: Binding<Bool>,
         @ViewBuilder content: @escaping () -> Content
     ) {
         self.init(
             title: title,
+            summary: summary,
             isExpanded: isExpanded,
             accessory: { EmptyView() },
             content: content
@@ -260,12 +274,85 @@ extension InspectorDisclosureSection where Accessory == EmptyView {
 
 /// A small, restrained "clear" affordance for a section header's accessory
 /// slot - an X that reads as an action without competing with the title.
+/// Reserved for removing something; restoring defaults uses
+/// `InspectorResetButton` so the two never look alike.
 struct InspectorClearButton: View {
     let help: String
     let action: () -> Void
 
     var body: some View {
         InspectorIconButton(systemName: "xmark", help: help, action: action)
+    }
+}
+
+/// Restores a section's defaults from the header's accessory slot.
+struct InspectorResetButton: View {
+    let help: String
+    let action: () -> Void
+
+    var body: some View {
+        InspectorIconButton(systemName: "arrow.counterclockwise", help: help, action: action)
+    }
+}
+
+/// The inspector's on/off switch for section headers. A compact capsule that
+/// uses the panel's track and border tokens when off and the accent when on,
+/// so it sits alongside the header's icon buttons instead of AppKit chrome.
+struct InspectorToggle: View {
+    let title: String
+    @Binding var isOn: Bool
+
+    private static let trackSize = CGSize(width: 26, height: 15)
+    private static let knobInset: CGFloat = 2
+
+    @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
+    @State private var isHovering = false
+
+    init(_ title: String, isOn: Binding<Bool>) {
+        self.title = title
+        self._isOn = isOn
+    }
+
+    var body: some View {
+        Button {
+            withAnimation(accessibilityReduceMotion ? nil : .snappy(duration: 0.16)) {
+                isOn.toggle()
+            }
+        } label: {
+            Capsule()
+                .fill(trackFill)
+                .overlay {
+                    Capsule().strokeBorder(
+                        isOn ? Color.clear : InspectorControlPalette.border,
+                        lineWidth: 0.5
+                    )
+                }
+                .overlay(alignment: isOn ? .trailing : .leading) {
+                    Circle()
+                        .fill(Color.white)
+                        .shadow(color: .black.opacity(0.2), radius: 1, y: 0.5)
+                        .padding(Self.knobInset)
+                }
+                .frame(width: Self.trackSize.width, height: Self.trackSize.height)
+                .frame(height: 24)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .focusEffectDisabled()
+        .opacity(isEnabled ? 1 : 0.4)
+        .onHover { isHovering = $0 }
+        .help(title)
+        .accessibilityLabel(title)
+        .accessibilityValue(isOn ? "On" : "Off")
+        .accessibilityAddTraits(.isToggle)
+    }
+
+    private var trackFill: Color {
+        if isOn {
+            return isHovering && isEnabled ? Color.accentColor.opacity(0.88) : Color.accentColor
+        }
+        return Color.primary.opacity(isHovering && isEnabled ? 0.2 : 0.14)
     }
 }
 
@@ -362,13 +449,13 @@ struct InspectorRow<Content: View>: View {
     }
 }
 
-/// Hairline divider between sections, matching the panel inset.
+/// Break between sections. Sections are separated by whitespace rather than
+/// rules, so this only adds a little extra air.
 struct InspectorSectionDivider: View {
     var body: some View {
-        Rectangle()
-            .fill(Color(nsColor: .separatorColor).opacity(0.45))
-            .frame(height: 0.5)
-            .padding(.horizontal, InspectorMetrics.horizontalPadding)
+        Color.clear
+            .frame(height: 4)
+            .accessibilityHidden(true)
     }
 }
 
@@ -403,7 +490,6 @@ struct InspectorSegmented<Option: Hashable, Label: View>: View {
         .padding(InspectorMetrics.controlInset)
         .frame(height: height)
         .background(shape.fill(trackFill))
-        .overlay(shape.stroke(InspectorControlPalette.border, lineWidth: 0.5))
         .clipShape(shape)
     }
 
@@ -426,12 +512,11 @@ struct InspectorSegmented<Option: Hashable, Label: View>: View {
         .background {
             RoundedRectangle(cornerRadius: segmentRadius, style: .continuous)
                 .fill(segmentFill(isSelected: selected, isHovering: isHovering))
-                .overlay {
-                    if selected {
-                        RoundedRectangle(cornerRadius: segmentRadius, style: .continuous)
-                            .stroke(InspectorControlPalette.border, lineWidth: 0.5)
-                    }
-                }
+                .shadow(
+                    color: selected ? InspectorControlPalette.selectedChipShadow(for: colorScheme) : .clear,
+                    radius: 1,
+                    y: 0.5
+                )
         }
         .onHover { isHovering in
             if isHovering {
@@ -449,7 +534,7 @@ struct InspectorSegmented<Option: Hashable, Label: View>: View {
 
     private func segmentFill(isSelected: Bool, isHovering: Bool) -> Color {
         if isSelected {
-            return InspectorControlPalette.selectionFill(for: colorScheme)
+            return InspectorControlPalette.selectedChipFill(for: colorScheme)
         }
         return isHovering ? InspectorControlPalette.hoverFill : .clear
     }

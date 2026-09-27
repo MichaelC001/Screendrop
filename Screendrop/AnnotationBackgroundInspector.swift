@@ -34,7 +34,7 @@ struct AnnotationBackgroundInspector: View {
     @State private var selectedFillLibrary = AnnotationBackgroundFillLibrary.color
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: InspectorMetrics.groupSpacing) {
             VStack(alignment: .leading, spacing: InspectorMetrics.groupLabelSpacing) {
                 InspectorGroupLabel("Fill library")
 
@@ -48,7 +48,7 @@ struct AnnotationBackgroundInspector: View {
                     },
                     label: { library in
                         Text(library.title)
-                            .font(.system(size: 10.5, weight: .medium))
+                            .font(.inspectorSegment)
                     }
                 )
             }
@@ -61,21 +61,14 @@ struct AnnotationBackgroundInspector: View {
             VStack(alignment: .leading, spacing: InspectorMetrics.groupLabelSpacing) {
                 InspectorGroupLabel("Layout")
 
-                VStack(alignment: .leading, spacing: InspectorMetrics.rowSpacing) {
+                InspectorFieldPair {
                     InspectorSlider(
                         "Padding",
                         value: $settings.padding,
                         range: 0.04...0.45,
                         format: .percent()
                     )
-
-                    InspectorSlider(
-                        "Shadow",
-                        value: $settings.shadow,
-                        range: 0...1,
-                        format: .percent()
-                    )
-
+                } trailing: {
                     InspectorSlider(
                         "Corners",
                         value: $settings.cornerRadius,
@@ -86,7 +79,14 @@ struct AnnotationBackgroundInspector: View {
             }
 
             VStack(alignment: .leading, spacing: InspectorMetrics.groupLabelSpacing) {
-                InspectorGroupLabel("Shadow style")
+                InspectorGroupLabel("Shadow")
+
+                InspectorSlider(
+                    "Amount",
+                    value: $settings.shadow,
+                    range: 0...1,
+                    format: .percent()
+                )
 
                 InspectorSegmented(
                     options: AnnotationShadowStyle.allCases,
@@ -97,13 +97,13 @@ struct AnnotationBackgroundInspector: View {
                     },
                     label: { style in
                         Text(style.title)
-                            .font(.system(size: 11, weight: .medium))
+                            .font(.inspectorSegment)
                             .lineLimit(1)
                             .minimumScaleFactor(0.8)
                     }
                 )
+                .opacity(settings.shadow > 0 ? 1 : 0.45)
             }
-            .opacity(settings.shadow > 0 ? 1 : 0.45)
 
             InspectorRow("Alignment") {
                 AlignmentPositionPicker(
@@ -126,7 +126,7 @@ struct AnnotationBackgroundInspector: View {
                     },
                     label: { ratio in
                         Text(ratio.title)
-                            .font(.system(size: 11, weight: .medium))
+                            .font(.inspectorSegment)
                             .lineLimit(1)
                             .minimumScaleFactor(0.8)
                     }
@@ -216,7 +216,7 @@ struct AnnotationBackgroundInspector: View {
                 },
                 label: { id in
                     Text(title(forSourceID: id))
-                        .font(.system(size: 11, weight: .medium))
+                        .font(.inspectorSegment)
                         .lineLimit(1)
                         .minimumScaleFactor(0.8)
                 }
@@ -341,11 +341,16 @@ struct AnnotationWatermarkInspector: View {
         )
     }
 
-    private var watermarkColor: Binding<Color> {
-        Binding(
-            get: { settings.color.color },
-            set: { settings.color = .custom(from: $0) }
-        )
+    /// The watermark stores its own color type; the shared swatch strip
+    /// speaks `AnnotationSwatch`, so presets match by value and anything else
+    /// shows in the custom well.
+    private var watermarkSwatch: AnnotationSwatch {
+        let color = settings.color
+        return AnnotationSwatch.allCases.first {
+            abs($0.red - color.red) < 0.002
+                && abs($0.green - color.green) < 0.002
+                && abs($0.blue - color.blue) < 0.002
+        } ?? .custom(from: color.nsColor)
     }
 
     var body: some View {
@@ -357,46 +362,51 @@ struct AnnotationWatermarkInspector: View {
             }
 
             if hasWatermarkText {
-                InspectorSlider(
-                    "Density",
-                    value: $settings.density,
-                    range: 2...10,
-                    format: .integer
-                )
+                VStack(alignment: .leading, spacing: InspectorMetrics.rowSpacing) {
+                    InspectorFieldPair {
+                        InspectorSlider(
+                            "Density",
+                            value: $settings.density,
+                            range: 2...10,
+                            format: .integer
+                        )
+                    } trailing: {
+                        InspectorSlider(
+                            "Size",
+                            value: $settings.fontSize,
+                            range: 8...160,
+                            format: .pixels
+                        )
+                    }
 
-                InspectorSlider(
-                    "Size",
-                    value: $settings.fontSize,
-                    range: 8...160,
-                    format: .pixels
-                )
+                    InspectorFieldPair {
+                        InspectorSlider(
+                            "Angle",
+                            value: $settings.rotationDegrees,
+                            range: -90...90,
+                            format: .degrees()
+                        )
+                    } trailing: {
+                        InspectorSlider(
+                            "Opacity",
+                            value: $settings.opacity,
+                            range: 0...0.75,
+                            format: .percent()
+                        )
+                    }
 
-                InspectorSlider(
-                    "Angle",
-                    value: $settings.rotationDegrees,
-                    range: -90...90,
-                    format: .degrees()
-                )
-
-                InspectorSlider(
-                    "Opacity",
-                    value: $settings.opacity,
-                    range: 0...0.75,
-                    format: .percent()
-                )
-
-                HStack(spacing: 10) {
-                    Text("Color")
-                        .font(.inspectorLabel)
-                        .foregroundStyle(.secondary)
-
-                    Spacer(minLength: 0)
-
-                    ColorPicker("", selection: watermarkColor, supportsOpacity: false)
-                        .labelsHidden()
-                        .controlSize(.small)
+                    InspectorRow("Color") {
+                        AnnotationSwatchStrip(selectedSwatch: watermarkSwatch) { swatch in
+                            settings.color = AnnotationWatermarkColor(
+                                red: swatch.red,
+                                green: swatch.green,
+                                blue: swatch.blue
+                            )
+                        }
+                    }
                 }
-                .frame(maxWidth: .infinity)
+                .disabled(!settings.isEnabled)
+                .opacity(settings.isEnabled ? 1 : 0.48)
             }
         }
         .onChange(of: focusedField.wrappedValue) { _, newValue in
@@ -425,7 +435,7 @@ struct AnnotationWatermarkInspector: View {
                     .foregroundStyle(.tertiary)
             }
             .padding(.horizontal, 8)
-            .inspectorField(height: 26)
+            .inspectorField()
         }
         .buttonStyle(.plain)
         .help(hasWatermarkText ? "Edit watermark text" : "Add watermark")
@@ -438,7 +448,7 @@ struct AnnotationWatermarkInspector: View {
             .textFieldStyle(.plain)
             .font(.inspectorValue)
             .padding(.horizontal, 8)
-            .inspectorField(height: 26)
+            .inspectorField()
             .onAppear {
                 focusedField.wrappedValue = .watermarkText
             }
@@ -637,7 +647,6 @@ private struct AlignmentPositionPicker: View {
         .padding(InspectorMetrics.controlInset)
         .frame(width: size, height: size)
         .background(shape.fill(InspectorControlPalette.trackFill(for: colorScheme)))
-        .overlay(shape.stroke(InspectorControlPalette.border, lineWidth: 0.5))
         .clipShape(shape)
         .opacity(isEnabled ? 1 : 0.46)
         .help(isEnabled ? "Image alignment" : "Reset Camera to use alignment")

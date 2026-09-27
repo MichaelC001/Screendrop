@@ -6,6 +6,7 @@ struct CaptureLibraryView: View {
     @State private var history = ScreenshotHistoryStore.shared
     @State private var projects = RecordingProjectStore.shared
     @State private var libraryWindow: NSWindow?
+    @State private var columnVisibility = NavigationSplitViewVisibility.automatic
     @AppStorage("captureLibrary.layout") private var layout: CaptureLibraryLayout = .grid
     @AppStorage("captureLibrary.inspectorVisible") private var inspectorVisible = true
     @AppStorage("captureLibrary.sort") private var savedSort: CaptureLibrarySort = .newest
@@ -13,7 +14,7 @@ struct CaptureLibraryView: View {
     private var activeFilter: CaptureLibraryFilter { model.filter ?? .all }
 
     var body: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
             List(selection: $model.filter) {
                 Section("Library") {
                     ForEach(CaptureLibraryFilter.allCases) { filter in
@@ -44,12 +45,14 @@ struct CaptureLibraryView: View {
                 .padding(.horizontal, 20)
                 .padding(.bottom, 8)
             }
+            .modifier(LibrarySidebarSurface())
         } detail: {
             VStack(spacing: 0) {
                 browser
                 Divider()
                 statusBar
             }
+            .modifier(LibraryDetailCorners(showsSidebar: columnVisibility != .detailOnly))
             .navigationTitle(activeFilter.title)
             .navigationSubtitle("Screendrop")
         }
@@ -220,6 +223,78 @@ struct CaptureLibraryView: View {
             }
             .keyboardShortcut("i", modifiers: [.command, .option])
             .help(inspectorVisible ? "Hide Inspector" : "Show Inspector")
+        }
+    }
+}
+
+/// Share one adaptive color between the sidebar and the detail's corner
+/// cutouts; separate visual-effect views can resolve to different tints.
+private struct LibrarySidebarSurface: ViewModifier {
+    static var background: Color { Color(nsColor: .underPageBackgroundColor) }
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(macOS 27.0, *) {
+            content
+                .scrollContentBackground(.hidden)
+                .background {
+                    Self.background.ignoresSafeArea(.container)
+                }
+        } else {
+            content
+        }
+    }
+}
+
+/// Round the entire detail surface, including the native toolbar's safe area.
+/// The browser keeps its normal insets so content doesn't move under controls.
+private struct LibraryDetailCorners: ViewModifier {
+    let showsSidebar: Bool
+    @Environment(\.displayScale) private var displayScale
+
+    private var cornerRadius: CGFloat { showsSidebar ? 16 : 0 }
+
+    private var surface: UnevenRoundedRectangle {
+        UnevenRoundedRectangle(
+            topLeadingRadius: cornerRadius,
+            bottomLeadingRadius: cornerRadius,
+            style: .continuous
+        )
+    }
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(macOS 27.0, *) {
+            content
+                // Only the lower corner intersects the body. The upper corner
+                // belongs to the background extended behind the toolbar below.
+                .clipShape(
+                    UnevenRoundedRectangle(
+                        bottomLeadingRadius: cornerRadius,
+                        style: .continuous
+                    )
+                )
+                .background {
+                    ZStack {
+                        LibrarySidebarSurface.background
+                        surface.fill(Color(nsColor: .controlBackgroundColor))
+                    }
+                    .ignoresSafeArea(.container, edges: .top)
+                }
+                .overlay {
+                    if showsSidebar {
+                        surface
+                            .strokeBorder(Color(nsColor: .separatorColor), lineWidth: 1 / displayScale)
+                            .mask(alignment: .leading) {
+                                Rectangle().frame(width: cornerRadius)
+                            }
+                            .ignoresSafeArea(.container, edges: .top)
+                            .allowsHitTesting(false)
+                    }
+                }
+                .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
+        } else {
+            content
         }
     }
 }

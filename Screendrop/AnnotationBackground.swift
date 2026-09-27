@@ -452,7 +452,8 @@ struct AnnotationWatermarkSettings: Equatable {
     var color: AnnotationWatermarkColor = .mercury
 
     var isVisible: Bool {
-        !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        isEnabled
+            && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && opacity > 0
     }
 }
