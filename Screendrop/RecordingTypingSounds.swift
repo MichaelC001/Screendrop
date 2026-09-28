@@ -50,7 +50,7 @@ nonisolated enum TypingSoundProfile: String, Codable, CaseIterable, Identifiable
     /// A tactile mechanical switch: a crisp downstroke, a woody bottom-out
     /// and a lighter upstroke.
     case mechanical
-    /// A low-travel scissor-switch keyboard like Apple's: short, soft ticks.
+    /// A low-travel MacBook keyboard: soft, padded thumps with no click.
     case apple
 
     var id: Self { self }
@@ -109,8 +109,8 @@ nonisolated enum TypingSoundDefaults {
 /// (`TypingSoundSamples`): the press at the keypress and the release a
 /// moment later. Each key class and variant gets its own pitch, level,
 /// release timing and stereo position so fast typing never sounds looped.
-/// The Apple profile reshapes the same recording into a shorter, brighter,
-/// softer low-travel tick.
+/// The Apple profile reshapes the same recording into a MacBook-style soft
+/// thump: the click filtered away, a gentler onset and a faint release.
 nonisolated enum TypingSoundSynthesizer {
     static let sampleRate: Double = 48_000
     static let variantsPerKind = 6
@@ -147,8 +147,11 @@ nonisolated enum TypingSoundSynthesizer {
         var downGain: Float
         var upGain: Float
         var releaseDelay: TimeInterval
-        /// Removes body below this frequency; nil keeps the full sound.
-        var highPass: Double?
+        /// Removes the bright click above this frequency; nil keeps the full
+        /// sound.
+        var lowPass: Double?
+        /// Fades the onset in over this long so the key lands without a snap.
+        var attack: TimeInterval = 0
         /// Cuts each sample off after this long, with a short fade.
         var maximumLength: TimeInterval?
     }
@@ -206,17 +209,22 @@ nonisolated enum TypingSoundSynthesizer {
                 downGain: level,
                 upGain: level * Float(random.next(in: 0.75...0.95)),
                 releaseDelay: random.next(in: 0.07...0.11) * (kind == .space ? 1.2 : 1),
-                highPass: nil,
+                lowPass: nil,
                 maximumLength: nil
             )
         case .apple:
+            // Scissor switches barely travel and have no click leaf: a
+            // dull, padded thump, then an almost silent return.
             return Voicing(
-                pitch: kindPitch * random.next(in: 1.28...1.38),
-                downGain: level * 0.62,
-                upGain: level * 0.22,
-                releaseDelay: random.next(in: 0.045...0.065),
-                highPass: 900,
-                maximumLength: 0.022
+                pitch: kindPitch * random.next(in: 0.84...0.92),
+                // Filtering the click away removes most of the energy; make
+                // it back up so the thump sits just under Mechanical.
+                downGain: level * 2.6,
+                upGain: level * 0.4,
+                releaseDelay: random.next(in: 0.05...0.07),
+                lowPass: kind == .space ? 900 : 1_200,
+                attack: 0.0025,
+                maximumLength: 0.035
             )
         }
     }
@@ -241,10 +249,20 @@ nonisolated enum TypingSoundSynthesizer {
             output[index] = source[lower] + (source[next] - source[lower]) * fraction
         }
 
-        if let cutoff = voicing.highPass {
-            var filter = OnePoleHighPass(cutoff: cutoff, sampleRate: sampleRate)
-            for index in output.indices {
-                output[index] = filter.process(output[index])
+        if let cutoff = voicing.lowPass {
+            // Two passes for a steeper slope, so no click leaks through.
+            for _ in 0..<2 {
+                var filter = OnePoleLowPass(cutoff: cutoff, sampleRate: sampleRate)
+                for index in output.indices {
+                    output[index] = filter.process(output[index])
+                }
+            }
+        }
+        if voicing.attack > 0 {
+            let rampFrames = min(length, Int(voicing.attack * sampleRate))
+            for index in 0..<rampFrames {
+                let progress = Float(index) / Float(rampFrames)
+                output[index] *= progress * progress
             }
         }
         if voicing.maximumLength != nil {
@@ -256,21 +274,19 @@ nonisolated enum TypingSoundSynthesizer {
         return output
     }
 
-    private struct OnePoleHighPass {
+    private struct OnePoleLowPass {
         private let coefficient: Float
-        private var previousInput: Float = 0
         private var previousOutput: Float = 0
 
         init(cutoff: Double, sampleRate: Double) {
+            let dt = 1 / sampleRate
             let rc = 1 / (2 * Double.pi * cutoff)
-            coefficient = Float(rc / (rc + 1 / sampleRate))
+            coefficient = Float(dt / (rc + dt))
         }
 
         mutating func process(_ input: Float) -> Float {
-            let output = coefficient * (previousOutput + input - previousInput)
-            previousInput = input
-            previousOutput = output
-            return output
+            previousOutput += coefficient * (input - previousOutput)
+            return previousOutput
         }
     }
 }
