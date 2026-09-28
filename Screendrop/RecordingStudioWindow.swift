@@ -479,6 +479,16 @@ private struct ExportProgressPill: View {
 private struct StudioCanvas: View {
     @Bindable var model: RecordingStudioModel
 
+    /// A play/pause glyph that blooms in the middle of the canvas after a
+    /// click toggles playback, then fades.
+    private struct PlaybackFlash: Equatable {
+        let id = UUID()
+        let systemImage: String
+    }
+
+    @State private var playbackFlash: PlaybackFlash?
+    @Environment(\.colorScheme) private var colorScheme
+
     var body: some View {
         GeometryReader { proxy in
             let available = CGSize(
@@ -501,6 +511,13 @@ private struct StudioCanvas: View {
                     canvasSize: canvasSize,
                     isEditingVideoCrop: model.isCroppingVideo
                 )
+                // Clicking the picture plays or pauses, like a player.
+                // The camera bubble and zoom target keep their own drags.
+                .contentShape(Rectangle())
+                .gesture(
+                    TapGesture().onEnded(togglePlayback),
+                    including: model.isCroppingVideo ? .subviews : .all
+                )
 
                 if model.isCroppingVideo {
                     VideoCropOverlay(
@@ -513,12 +530,68 @@ private struct StudioCanvas: View {
                         .padding(12)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
                         .allowsHitTesting(false)
+                } else if let skimTime {
+                    StudioCanvasBadge(text: "Previewing \(studioPreciseTimecode(skimTime))")
+                        .padding(10)
+                        .allowsHitTesting(false)
+                        .transition(.opacity)
+                }
+
+                if let playbackFlash {
+                    StudioPlaybackFlashView(systemImage: playbackFlash.systemImage)
+                        .frame(width: canvasSize.width, height: canvasSize.height)
+                        .id(playbackFlash.id)
+                        .allowsHitTesting(false)
+                        .transition(.opacity.combined(with: .scale(scale: 0.85)))
                 }
             }
             .coordinateSpace(name: VideoCropOverlay.coordinateSpaceName)
             .frame(width: canvasSize.width, height: canvasSize.height)
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            // Square like the exported video, lifted off the workspace by a
+            // hairline and a soft shadow instead of a rounded mask that also
+            // clipped the camera bubble.
+            .clipped()
+            .overlay {
+                Rectangle()
+                    .strokeBorder(canvasEdge, lineWidth: 0.5)
+                    .allowsHitTesting(false)
+            }
+            .background {
+                Rectangle()
+                    .fill(Color.black)
+                    .shadow(color: .black.opacity(colorScheme == .dark ? 0.45 : 0.16), radius: 14, y: 5)
+            }
+            .animation(.easeOut(duration: 0.15), value: skimTime == nil)
             .position(x: proxy.size.width / 2, y: proxy.size.height / 2)
+        }
+    }
+
+    /// The hovered timeline moment while the preview skims away from the
+    /// playhead; nil when the canvas shows the playhead frame.
+    private var skimTime: TimeInterval? {
+        guard !model.isPlaying,
+              let hover = model.hoverPreviewTime,
+              abs(hover - model.currentTime) > 0.05 else { return nil }
+        return hover
+    }
+
+    private var canvasEdge: Color {
+        colorScheme == .dark ? Color.white.opacity(0.12) : Color.black.opacity(0.12)
+    }
+
+    private func togglePlayback() {
+        guard model.isLoaded else { return }
+        model.togglePlayback()
+        let flash = PlaybackFlash(systemImage: model.isPlaying ? "play.fill" : "pause.fill")
+        withAnimation(.easeOut(duration: 0.12)) {
+            playbackFlash = flash
+        }
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(520))
+            guard playbackFlash == flash else { return }
+            withAnimation(.easeOut(duration: 0.25)) {
+                playbackFlash = nil
+            }
         }
     }
 
@@ -526,6 +599,32 @@ private struct StudioCanvas: View {
         guard size.width > 0, size.height > 0 else { return bounds }
         let scale = min(bounds.width / size.width, bounds.height / size.height)
         return CGSize(width: size.width * scale, height: size.height * scale)
+    }
+}
+
+/// Small dark capsule for transient canvas status.
+private struct StudioCanvasBadge: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: 11, weight: .medium).monospacedDigit())
+            .foregroundStyle(.white)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 5)
+            .background(Capsule().fill(Color.black.opacity(0.62)))
+    }
+}
+
+private struct StudioPlaybackFlashView: View {
+    let systemImage: String
+
+    var body: some View {
+        Image(systemName: systemImage)
+            .font(.system(size: 22, weight: .bold))
+            .foregroundStyle(.white)
+            .frame(width: 60, height: 60)
+            .background(Circle().fill(Color.black.opacity(0.5)))
     }
 }
 
@@ -549,7 +648,10 @@ private struct StudioCanvasComposition: View {
         )
 
         TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !model.isPlaying)) { _ in
-            let state = isEditingVideoCrop
+            let zoomTarget = zoomTargetCue
+            // While a zoom's target is on show the frame stays unzoomed, so
+            // the target reads against the whole picture.
+            let state = isEditingVideoCrop || zoomTarget != nil
                 ? ViewportFrame.identity
                 : model.previewViewportFrame(at: model.displayTime)
 
@@ -611,10 +713,134 @@ private struct StudioCanvasComposition: View {
                         canvasSize: canvasSize
                     )
                 }
+
+                if let zoomTarget {
+                    StudioZoomTargetOverlay(
+                        model: model,
+                        cue: zoomTarget,
+                        layout: layout,
+                        canvasSize: canvasSize
+                    )
+                }
             }
             .frame(width: canvasSize.width, height: canvasSize.height)
         }
         .frame(width: canvasSize.width, height: canvasSize.height)
+    }
+
+    /// The selected zoom, shown as a target on the paused canvas.
+    private var zoomTargetCue: ZoomCue? {
+        guard !isEditingVideoCrop,
+              !model.isPlaying,
+              model.zoomEnabled,
+              let cue = model.selectedCue,
+              cue.isEnabled else { return nil }
+        return cue
+    }
+}
+
+/// Where the selected zoom will look, drawn over the unzoomed frame with
+/// everything outside it dimmed. Fixed zooms can be dragged to re-aim them;
+/// pointer and smart zooms follow the pointer, so their target is shown at
+/// the pointer's position under the playhead and can't be moved.
+private struct StudioZoomTargetOverlay: View {
+    @Bindable var model: RecordingStudioModel
+    let cue: ZoomCue
+    let layout: RecordingStudioLayout
+    let canvasSize: CGSize
+
+    @State private var dragStartPoint: CGPoint?
+    @State private var isHovering = false
+
+    private var isMovable: Bool {
+        cue.anchorMode == .pinnedAnchor
+    }
+
+    private var target: CGPoint {
+        if isMovable { return cue.pinnedPoint }
+        return model.pointerLocation(at: model.displayTime) ?? CGPoint(x: 0.5, y: 0.5)
+    }
+
+    var body: some View {
+        let card = layout.cardRect
+        let content = layout.contentFillSize
+        let magnification = max(CGFloat(cue.zoom), 1)
+        let size = CGSize(width: card.width / magnification, height: card.height / magnification)
+        let center = CGPoint(
+            x: card.midX + content.width * (target.x - 0.5),
+            y: card.midY + content.height * (target.y - 0.5)
+        )
+        let rect = CGRect(
+            x: min(max(center.x - size.width / 2, card.minX), card.maxX - size.width),
+            y: min(max(center.y - size.height / 2, card.minY), card.maxY - size.height),
+            width: size.width,
+            height: size.height
+        )
+        let isActive = isHovering || dragStartPoint != nil
+
+        ZStack(alignment: .topLeading) {
+            Path { path in
+                path.addRoundedRect(
+                    in: card,
+                    cornerSize: CGSize(width: layout.cardCornerRadius, height: layout.cardCornerRadius),
+                    style: .continuous
+                )
+                path.addRect(rect)
+            }
+            .fill(Color.black.opacity(0.38), style: FillStyle(eoFill: true))
+            .allowsHitTesting(false)
+
+            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                .strokeBorder(
+                    Color.white.opacity(isActive ? 1 : 0.9),
+                    style: StrokeStyle(lineWidth: isActive ? 2.5 : 2, dash: isMovable ? [] : [6, 4])
+                )
+                .background(Color.white.opacity(0.001))
+                .shadow(color: .black.opacity(0.35), radius: 2)
+                .overlay(alignment: .topLeading) {
+                    StudioCanvasBadge(
+                        text: isMovable
+                            ? InspectorValueFormat.magnification(fractionDigits: 1).displayString(for: magnification)
+                            : "Follows pointer"
+                    )
+                    .padding(6)
+                    .allowsHitTesting(false)
+                }
+                .frame(width: rect.width, height: rect.height)
+                .contentShape(Rectangle())
+                .onHover { isHovering = $0 && isMovable }
+                .pointerStyle(isMovable ? (dragStartPoint == nil ? PointerStyle.grabIdle : .grabActive) : nil)
+                .onTapGesture {}
+                .gesture(moveGesture(contentSize: content), including: isMovable ? .all : .none)
+                .help(isMovable ? "Drag to aim this zoom" : "Switch Camera Focus to Fixed to aim this zoom by hand")
+                .offset(x: rect.minX, y: rect.minY)
+        }
+        .frame(width: canvasSize.width, height: canvasSize.height, alignment: .topLeading)
+    }
+
+    private func moveGesture(contentSize: CGSize) -> some Gesture {
+        // Global coordinates: the target moves under the pointer, so local
+        // translations would chase their own updates.
+        DragGesture(coordinateSpace: .global)
+            .onChanged { value in
+                if dragStartPoint == nil {
+                    dragStartPoint = cue.pinnedPoint
+                    model.beginZoomCueEdit()
+                }
+                guard let start = dragStartPoint,
+                      contentSize.width > 0,
+                      contentSize.height > 0 else { return }
+                var updated = cue
+                updated.pinnedPoint = CGPoint(
+                    x: min(max(start.x + value.translation.width / contentSize.width, 0), 1),
+                    y: min(max(start.y + value.translation.height / contentSize.height, 0), 1)
+                )
+                model.updateZoomCue(updated)
+            }
+            .onEnded { _ in
+                dragStartPoint = nil
+                model.endZoomCueEdit(actionName: "Aim Zoom")
+            }
     }
 }
 
@@ -1229,46 +1455,152 @@ private enum StudioCursorImageCache {
     }
 }
 
+/// The draggable talking-head bubble. It snaps to the canvas corners, edge
+/// midpoints and center lines (inside the same safe margin the layout keeps),
+/// drawing a guide for each axis it has snapped on.
 private struct StudioCameraBubble: View {
     @Bindable var model: RecordingStudioModel
     let layout: RecordingStudioLayout
 
+    private static let snapDistance: CGFloat = 8
+    private static let hoverRingPadding: CGFloat = 3
+
+    private struct SnapGuides: Equatable {
+        var x: CGFloat?
+        var y: CGFloat?
+    }
+
+    /// Bubble center in canvas points when the drag began.
     @State private var dragStartCenter: CGPoint?
+    @State private var guides = SnapGuides()
+    @State private var isHovering = false
 
     var body: some View {
-        StudioPlayerLayerView(player: model.cameraPlayer, gravity: .resizeAspectFill)
-            .frame(width: layout.bubbleRect.width, height: layout.bubbleRect.height)
-            .clipShape(RoundedRectangle(cornerRadius: layout.bubbleCornerRadius, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: layout.bubbleCornerRadius, style: .continuous)
-                    .strokeBorder(.white.opacity(0.25), lineWidth: 1)
+        let rect = layout.bubbleRect
+        let canvas = layout.canvasSize
+        let isActive = isHovering || dragStartCenter != nil
+
+        ZStack(alignment: .topLeading) {
+            guideLines(in: canvas)
+
+            StudioPlayerLayerView(player: model.cameraPlayer, gravity: .resizeAspectFill)
+                .frame(width: rect.width, height: rect.height)
+                .clipShape(RoundedRectangle(cornerRadius: layout.bubbleCornerRadius, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: layout.bubbleCornerRadius, style: .continuous)
+                        .strokeBorder(.white.opacity(0.25), lineWidth: 1)
+                }
+                .overlay {
+                    if isActive {
+                        // Nested radius: the ring sits `hoverRingPadding` outside.
+                        RoundedRectangle(
+                            cornerRadius: layout.bubbleCornerRadius + Self.hoverRingPadding,
+                            style: .continuous
+                        )
+                        .strokeBorder(Color.accentColor, lineWidth: 2)
+                        .padding(-Self.hoverRingPadding)
+                        .allowsHitTesting(false)
+                    }
+                }
+                .shadow(
+                    color: .black.opacity(0.35),
+                    radius: min(canvas.width, canvas.height) * 0.022,
+                    y: min(canvas.width, canvas.height) * 0.009
+                )
+                .contentShape(RoundedRectangle(cornerRadius: layout.bubbleCornerRadius, style: .continuous))
+                .onHover { isHovering = $0 }
+                .pointerStyle(dragStartCenter == nil ? PointerStyle.grabIdle : .grabActive)
+                // Swallow clicks so they don't toggle playback underneath.
+                .onTapGesture {}
+                .gesture(dragGesture(rect: rect, canvas: canvas))
+                .help("Drag to place the camera")
+                .offset(x: rect.minX, y: rect.minY)
+        }
+        .frame(width: canvas.width, height: canvas.height, alignment: .topLeading)
+    }
+
+    @ViewBuilder
+    private func guideLines(in canvas: CGSize) -> some View {
+        ZStack(alignment: .topLeading) {
+            if let x = guides.x {
+                Rectangle()
+                    .fill(Color.accentColor)
+                    .frame(width: 1, height: canvas.height)
+                    .offset(x: x - 0.5)
             }
-            .shadow(
-                color: .black.opacity(0.35),
-                radius: min(layout.canvasSize.width, layout.canvasSize.height) * 0.022,
-                y: min(layout.canvasSize.width, layout.canvasSize.height) * 0.009
-            )
-            .position(x: layout.bubbleRect.midX, y: layout.bubbleRect.midY)
-            .gesture(
-                DragGesture()
-                    .onChanged { value in
-                        if dragStartCenter == nil {
-                            dragStartCenter = model.style.camera.center
-                        }
-                        guard let dragStartCenter else { return }
-                        let next = CGPoint(
-                            x: dragStartCenter.x + value.translation.width / layout.canvasSize.width,
-                            y: dragStartCenter.y + value.translation.height / layout.canvasSize.height
-                        )
-                        model.style.camera.center = CGPoint(
-                            x: min(max(next.x, 0), 1),
-                            y: min(max(next.y, 0), 1)
-                        )
-                    }
-                    .onEnded { _ in
-                        dragStartCenter = nil
-                    }
-            )
+            if let y = guides.y {
+                Rectangle()
+                    .fill(Color.accentColor)
+                    .frame(width: canvas.width, height: 1)
+                    .offset(y: y - 0.5)
+            }
+        }
+        .frame(width: canvas.width, height: canvas.height, alignment: .topLeading)
+        .allowsHitTesting(false)
+    }
+
+    private func dragGesture(rect: CGRect, canvas: CGSize) -> some Gesture {
+        // Global coordinates: the bubble moves under the pointer, so local
+        // translations would chase their own updates.
+        DragGesture(coordinateSpace: .global)
+            .onChanged { value in
+                if dragStartCenter == nil {
+                    // Start from where the bubble is drawn, not the stored
+                    // center, which the layout may have clamped.
+                    dragStartCenter = CGPoint(x: rect.midX, y: rect.midY)
+                }
+                guard let start = dragStartCenter, canvas.width > 0, canvas.height > 0 else { return }
+                let proposed = CGPoint(
+                    x: start.x + value.translation.width,
+                    y: start.y + value.translation.height
+                )
+                let margin = RecordingStudioLayout.bubbleMargin(
+                    forMinDimension: min(canvas.width, canvas.height)
+                )
+                let (snappedX, guideX) = Self.snap(
+                    proposed.x,
+                    radius: rect.width / 2,
+                    length: canvas.width,
+                    margin: margin
+                )
+                let (snappedY, guideY) = Self.snap(
+                    proposed.y,
+                    radius: rect.height / 2,
+                    length: canvas.height,
+                    margin: margin
+                )
+                guides = SnapGuides(x: guideX, y: guideY)
+                model.style.camera.center = CGPoint(
+                    x: min(max(snappedX / canvas.width, 0), 1),
+                    y: min(max(snappedY / canvas.height, 0), 1)
+                )
+            }
+            .onEnded { _ in
+                dragStartCenter = nil
+                withAnimation(.easeOut(duration: 0.15)) {
+                    guides = SnapGuides()
+                }
+            }
+    }
+
+    /// Snaps one axis of the bubble center to the near edge, the middle, or
+    /// the far edge. Returns the snapped center and where to draw the guide.
+    private static func snap(
+        _ center: CGFloat,
+        radius: CGFloat,
+        length: CGFloat,
+        margin: CGFloat
+    ) -> (CGFloat, CGFloat?) {
+        let targets: [(center: CGFloat, guide: CGFloat)] = [
+            (margin + radius, margin),
+            (length / 2, length / 2),
+            (length - margin - radius, length - margin)
+        ]
+        guard let nearest = targets.min(by: { abs($0.center - center) < abs($1.center - center) }),
+              abs(nearest.center - center) <= snapDistance else {
+            return (center, nil)
+        }
+        return (nearest.center, nearest.guide)
     }
 }
 
