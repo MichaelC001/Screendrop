@@ -3373,17 +3373,7 @@ private struct StudioInspector: View {
 
     private var typingSoundControls: some View {
         VStack(alignment: .leading, spacing: InspectorMetrics.rowSpacing) {
-            InspectorSegmented(
-                options: TypingSoundProfile.allCases,
-                isSelected: { $0 == model.typingSounds.profile },
-                onTap: { typingSoundsBinding(\.profile).wrappedValue = $0 },
-                label: { profile in
-                    Label(profile.title, systemImage: profile.systemImage)
-                        .labelStyle(.titleAndIcon)
-                        .font(.inspectorSegment)
-                }
-            )
-
+            // One sound for now; a picker returns when there's a second.
             InspectorFieldPair {
                 InspectorSlider(
                     "Volume",
