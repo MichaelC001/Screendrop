@@ -453,6 +453,11 @@ nonisolated struct RecordingStudioLayout: Sendable {
         case fit
     }
 
+    /// Gap kept between the camera bubble and the canvas edge.
+    static func bubbleMargin(forMinDimension minDimension: CGFloat) -> CGFloat {
+        (minDimension * 0.03).rounded()
+    }
+
     static func make(
         canvasSize: CGSize,
         style: RecordingStudioStyle,
@@ -519,8 +524,13 @@ nonisolated struct RecordingStudioLayout: Sendable {
                 x: style.camera.center.x * canvasSize.width,
                 y: style.camera.center.y * canvasSize.height
             )
-            center.x = min(max(center.x, diameter / 2), canvasSize.width - diameter / 2)
-            center.y = min(max(center.y, diameter / 2), canvasSize.height - diameter / 2)
+            // Keep a little air between the bubble and the canvas edge so it
+            // never sits jammed into a corner.
+            let margin = Self.bubbleMargin(forMinDimension: minDimension)
+            let halfX = min(diameter / 2 + margin, canvasSize.width / 2)
+            let halfY = min(diameter / 2 + margin, canvasSize.height / 2)
+            center.x = min(max(center.x, halfX), canvasSize.width - halfX)
+            center.y = min(max(center.y, halfY), canvasSize.height - halfY)
             bubbleRect = CGRect(
                 x: center.x - diameter / 2,
                 y: center.y - diameter / 2,
