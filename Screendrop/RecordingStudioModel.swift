@@ -371,7 +371,9 @@ final class RecordingStudioModel {
             )
         }
         duration = clipTimeline.duration
-        selectedClipID = clipTimeline.segments.first?.id
+        // Nothing is selected until the user picks a clip; an unsplit
+        // recording would otherwise open wrapped in selection chrome.
+        selectedClipID = nil
 
         // Resolve the imported soundtrack before the first player item is
         // built, so the editor opens already playing what it will export.
@@ -1284,7 +1286,9 @@ final class RecordingStudioModel {
             )
         }
         duration = clipTimeline.duration
-        selectedClipID = clipTimeline.segments.first?.id
+        // Nothing is selected until the user picks a clip; an unsplit
+        // recording would otherwise open wrapped in selection chrome.
+        selectedClipID = nil
 
         if let fileName = document.replacementAudioFileName {
             let url = session.directoryURL.appendingPathComponent(fileName)

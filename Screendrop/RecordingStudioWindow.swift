@@ -1332,6 +1332,7 @@ private struct StudioTimelineEditor: View {
     @State private var viewportWidth: CGFloat = 1
     @State private var scrollX: CGFloat = 0
     @State private var scrollPosition = ScrollPosition(edge: .leading)
+    @State private var isResetClipsConfirmationPresented = false
 
     /// Step per zoom button press / keyboard shortcut.
     private static let zoomStep: Double = 1.6
@@ -1416,7 +1417,9 @@ private struct StudioTimelineEditor: View {
             VStack(spacing: StudioTimelineMetrics.rowSpacing) {
                 Color.clear
                     .frame(height: StudioTimelineMetrics.clipLaneHeight)
-                StudioZoomLaneBackground()
+                StudioZoomLaneBackground(
+                    showsHint: model.zoomEnabled && model.zoomTimelineBlocks.isEmpty
+                )
                     .frame(height: StudioTimelineMetrics.zoomLaneHeight)
                 Color.clear
                     .frame(height: StudioTimelineMetrics.scrollerGutter)
@@ -1479,6 +1482,10 @@ private struct StudioTimelineEditor: View {
             onTrim: { model.trimClip($0) },
             onZoom: { factor, anchorTime in
                 applyZoom(factor: factor, anchorTime: anchorTime)
+            },
+            onStep: { seconds in
+                model.pause()
+                model.seek(to: model.currentTime + seconds)
             }
         )
     }
@@ -1550,114 +1557,130 @@ private struct StudioTimelineEditor: View {
     }
 
     private var zoomControls: some View {
-        HStack(spacing: 2) {
-            timelineButton("Zoom Out", systemImage: "minus.magnifyingglass") {
-                applyZoom(factor: 1 / Self.zoomStep, anchorTime: buttonZoomAnchor)
-            }
-            .keyboardShortcut("-", modifiers: .command)
-            .disabled(zoom <= 1.0001)
+        HStack(spacing: 6) {
+            StudioTransportTray {
+                timelineButton("Zoom Out (⌘-)", systemImage: "minus.magnifyingglass") {
+                    applyZoom(factor: 1 / Self.zoomStep, anchorTime: buttonZoomAnchor)
+                }
+                .keyboardShortcut("-", modifiers: .command)
+                .disabled(zoom <= 1.0001)
 
-            timelineButton("Zoom In", systemImage: "plus.magnifyingglass") {
-                applyZoom(factor: Self.zoomStep, anchorTime: buttonZoomAnchor)
-            }
-            .keyboardShortcut("=", modifiers: .command)
-            .disabled(zoom >= scale.maxZoom - 0.0001)
+                timelineButton("Zoom In (⌘=)", systemImage: "plus.magnifyingglass") {
+                    applyZoom(factor: Self.zoomStep, anchorTime: buttonZoomAnchor)
+                }
+                .keyboardShortcut("=", modifiers: .command)
+                .disabled(zoom >= scale.maxZoom - 0.0001)
 
-            timelineButton("Fit Timeline", systemImage: "arrow.left.and.right") {
-                fitTimeline()
+                timelineButton("Fit Timeline (⌘0)", systemImage: "arrow.left.and.right") {
+                    fitTimeline()
+                }
+                .keyboardShortcut("0", modifiers: .command)
+                .disabled(zoom <= 1.0001)
             }
-            .keyboardShortcut("0", modifiers: .command)
-            .disabled(zoom <= 1.0001)
 
             if zoom > 1.0001 {
                 Text(String(format: "%.1f×", zoom))
                     .font(.system(size: 10, weight: .medium).monospacedDigit())
                     .foregroundStyle(.secondary)
-                    .padding(.leading, 2)
             }
-
-            Spacer(minLength: 0)
         }
     }
 
-    private var transport: some View {
-        ZStack {
-            zoomControls
-
-            HStack(spacing: 2) {
-                Spacer(minLength: 0)
-
-                timelineButton("Split at Playhead", systemImage: "scissors") {
+    private var editControls: some View {
+        HStack(spacing: 6) {
+            StudioTransportTray {
+                timelineButton("Split at Playhead (⌘B)", systemImage: "scissors") {
                     model.splitClip(at: model.currentTime)
                 }
+                .keyboardShortcut("b", modifiers: .command)
 
                 timelineButton("Delete Selection", systemImage: "trash") {
                     deleteSelection()
                 }
                 .disabled(!canDeleteSelection)
 
-                Rectangle()
-                    .fill(Color(nsColor: .separatorColor))
-                    .frame(width: 1, height: 14)
-                    .padding(.horizontal, 6)
+                timelineButton("Reset All Clip Edits…", systemImage: "arrow.counterclockwise") {
+                    isResetClipsConfirmationPresented = true
+                }
+                .disabled(!model.hasClipEdits)
+                .confirmationDialog(
+                    "Reset all clip edits?",
+                    isPresented: $isResetClipsConfirmationPresented
+                ) {
+                    Button("Reset Clips", role: .destructive) {
+                        model.resetClips()
+                    }
+                } message: {
+                    Text("Every split, trim, deletion and speed change goes back to the original recording. You can undo this.")
+                }
+            }
 
-                timelineButton("Undo", systemImage: "arrow.uturn.backward") {
+            StudioTransportTray {
+                timelineButton("Undo (⌘Z)", systemImage: "arrow.uturn.backward") {
                     model.undo()
                 }
                 .keyboardShortcut("z", modifiers: .command)
                 .disabled(!model.canUndo)
 
-                timelineButton("Redo", systemImage: "arrow.uturn.forward") {
+                timelineButton("Redo (⇧⌘Z)", systemImage: "arrow.uturn.forward") {
                     model.redo()
                 }
                 .keyboardShortcut("z", modifiers: [.command, .shift])
                 .disabled(!model.canRedo)
-
-                timelineButton("Reset Clips", systemImage: "arrow.counterclockwise") {
-                    model.resetClips()
-                }
-                .disabled(!model.hasClipEdits)
-            }
-
-            HStack(spacing: 10) {
-                Text(studioPreciseTimecode(model.displayTime))
-                    .font(.system(size: 12, weight: .semibold).monospacedDigit())
-                    .foregroundStyle(.primary.opacity(0.9))
-
-                HStack(spacing: 2) {
-                    timelineButton("Back to Start", systemImage: "backward.end.fill") {
-                        model.pause()
-                        model.seek(to: 0)
-                    }
-
-                    Button {
-                        model.togglePlayback()
-                    } label: {
-                        Image(systemName: model.isPlaying ? "pause.fill" : "play.fill")
-                            .font(.system(size: 12, weight: .bold))
-                            .foregroundStyle(.primary.opacity(0.85))
-                            .frame(width: 30, height: 30)
-                            .background(Circle().fill(Color.primary.opacity(0.07)))
-                            .contentShape(Circle())
-                    }
-                    .buttonStyle(.plain)
-                    .keyboardShortcut(.space, modifiers: [])
-                    .help(model.isPlaying ? "Pause" : "Play")
-                    .accessibilityLabel(model.isPlaying ? "Pause" : "Play")
-                    .disabled(!model.isLoaded)
-
-                    timelineButton("Skip to End", systemImage: "forward.end.fill") {
-                        model.pause()
-                        model.seek(to: model.duration)
-                    }
-                }
-
-                Text(studioPreciseTimecode(model.duration))
-                    .font(.system(size: 12, weight: .medium).monospacedDigit())
-                    .foregroundStyle(.secondary)
             }
         }
-        .frame(height: 32)
+    }
+
+    private var playbackControls: some View {
+        HStack(spacing: 12) {
+            (Text(studioPreciseTimecode(model.displayTime))
+                .foregroundStyle(.primary.opacity(0.9))
+             + Text(" / \(studioPreciseTimecode(model.duration))")
+                .foregroundStyle(.secondary))
+                .font(.system(size: 12, weight: .medium).monospacedDigit())
+                .fixedSize()
+
+            HStack(spacing: 4) {
+                timelineButton("Back to Start", systemImage: "backward.end.fill") {
+                    model.pause()
+                    model.seek(to: 0)
+                }
+
+                Button {
+                    model.togglePlayback()
+                } label: {
+                    Image(systemName: model.isPlaying ? "pause.fill" : "play.fill")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(.primary.opacity(0.9))
+                        .frame(width: 34, height: 34)
+                        .background(Circle().fill(Color.primary.opacity(0.08)))
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .keyboardShortcut(.space, modifiers: [])
+                .help(model.isPlaying ? "Pause (Space)" : "Play (Space)")
+                .accessibilityLabel(model.isPlaying ? "Pause" : "Play")
+                .disabled(!model.isLoaded)
+
+                timelineButton("Skip to End", systemImage: "forward.end.fill") {
+                    model.pause()
+                    model.seek(to: model.duration)
+                }
+            }
+        }
+    }
+
+    private var transport: some View {
+        ZStack {
+            HStack(spacing: 0) {
+                zoomControls
+                Spacer(minLength: 0)
+                editControls
+            }
+
+            playbackControls
+        }
+        .frame(height: 36)
     }
 
     private var canDeleteSelection: Bool {
@@ -1680,12 +1703,38 @@ private struct StudioTimelineEditor: View {
         Button(action: action) {
             Image(systemName: systemImage)
                 .font(.system(size: 12, weight: .medium))
-                .frame(width: 26, height: 24)
-                .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                .frame(width: 28, height: 26)
+                .contentShape(RoundedRectangle(cornerRadius: StudioTransportMetrics.buttonRadius, style: .continuous))
         }
         .buttonStyle(TransportIconButtonStyle())
         .help(help)
         .accessibilityLabel(help)
+    }
+}
+
+/// A quiet filled tray grouping related transport buttons, the same
+/// treatment as the annotator's tool grid.
+private enum StudioTransportMetrics {
+    static let buttonRadius: CGFloat = 6
+    static let trayInset: CGFloat = 2
+}
+
+private struct StudioTransportTray<Content: View>: View {
+    @ViewBuilder let content: () -> Content
+
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        // Nested radius: the tray wraps buttons inset by `inset`.
+        let shape = RoundedRectangle(
+            cornerRadius: StudioTransportMetrics.buttonRadius + StudioTransportMetrics.trayInset,
+            style: .continuous
+        )
+        HStack(spacing: 0) {
+            content()
+        }
+        .padding(StudioTransportMetrics.trayInset)
+        .background(shape.fill(InspectorControlPalette.trackFill(for: colorScheme)))
     }
 }
 
@@ -1697,13 +1746,13 @@ private struct TransportIconButtonStyle: ButtonStyle {
         configuration.label
             .foregroundStyle(
                 .primary.opacity(
-                    isEnabled ? (configuration.isPressed || isHovering ? 0.95 : 0.6) : 0.22
+                    isEnabled ? (configuration.isPressed || isHovering ? 0.95 : 0.78) : 0.25
                 )
             )
             .background {
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                RoundedRectangle(cornerRadius: StudioTransportMetrics.buttonRadius, style: .continuous)
                     .fill(Color.primary.opacity(
-                        isEnabled ? (configuration.isPressed ? 0.08 : isHovering ? 0.04 : 0) : 0
+                        isEnabled ? (configuration.isPressed ? 0.1 : isHovering ? 0.06 : 0) : 0
                     ))
             }
             .onHover { isHovering = $0 }
@@ -2025,6 +2074,9 @@ private func studioPreciseTimecode(_ seconds: Double) -> String {
 /// blocks scroll inside it, so the lane reads as a fixed track no matter how
 /// far the timeline is zoomed.
 private struct StudioZoomLaneBackground: View {
+    /// An empty lane explains itself instead of reading as dead space.
+    var showsHint = false
+
     var body: some View {
         RoundedRectangle(
             cornerRadius: StudioZoomLaneMetrics.laneCornerRadius,
@@ -2032,11 +2084,11 @@ private struct StudioZoomLaneBackground: View {
         )
             .fill(Color.primary.opacity(0.055))
             .overlay {
-                RoundedRectangle(
-                    cornerRadius: StudioZoomLaneMetrics.laneCornerRadius,
-                    style: .continuous
-                )
-                    .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5)
+                if showsHint {
+                    Label("Drag here to add a zoom", systemImage: "plus.magnifyingglass")
+                        .font(.system(size: 10.5, weight: .medium))
+                        .foregroundStyle(.tertiary)
+                }
             }
             .allowsHitTesting(false)
     }
@@ -2177,6 +2229,7 @@ private enum StudioZoomLaneMetrics {
     static let selectionRingCornerRadius = blockCornerRadius + selectionRingPadding
     static let blockHeight: CGFloat = 24
     static let blockInset: CGFloat = 4
+    static let minimumLabelledBlockWidth: CGFloat = 48
 }
 
 private struct StudioZoomCueBlock: View {
@@ -2219,10 +2272,15 @@ private struct StudioZoomCueBlock: View {
             HStack(spacing: 0) {
                 resizeHandle(edge: .leading)
                 Spacer(minLength: 0)
-                Text(String(format: "%.1f×", cue.zoom))
-                    .font(.system(size: 10, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
+                // Too narrow for the label: show the block bare rather
+                // than a truncated "…".
+                if width >= StudioZoomLaneMetrics.minimumLabelledBlockWidth {
+                    Text(String(format: "%.1f×", cue.zoom))
+                        .font(.system(size: 10, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .fixedSize()
+                }
                 Spacer(minLength: 0)
                 resizeHandle(edge: .trailing)
             }
