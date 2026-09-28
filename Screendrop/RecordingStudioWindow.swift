@@ -1003,6 +1003,7 @@ private struct StudioTranscriptEditPanel: View {
     @Bindable var model: RecordingStudioModel
 
     @State private var selection: ClosedRange<Int>?
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         VStack(alignment: .leading, spacing: InspectorMetrics.rowSpacing) {
@@ -1014,10 +1015,10 @@ private struct StudioTranscriptEditPanel: View {
                 }
                 .frame(maxHeight: 260)
                 .background(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(Color.primary.opacity(0.045))
+                    RoundedRectangle(cornerRadius: InspectorMetrics.listRadius, style: .continuous)
+                        .fill(InspectorControlPalette.trackFill(for: colorScheme))
                 )
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: InspectorMetrics.listRadius, style: .continuous))
                 .onChange(of: model.activeTranscriptWordIndex) { _, activeIndex in
                     // Follow playback through the transcript, but never yank
                     // it around while the user is selecting a passage.
@@ -1056,21 +1057,12 @@ private struct StudioTranscriptEditPanel: View {
 
     private func cutSelectionRow(_ selection: ClosedRange<Int>) -> some View {
         HStack(spacing: 6) {
-            Button {
-                cutSelection()
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "scissors")
-                        .font(.system(size: 11, weight: .medium))
-                    Text(selection.count == 1 ? "Cut Word" : "Cut \(selection.count) Words")
-                        .font(.inspectorValue)
-                        .lineLimit(1)
-                }
-                .frame(maxWidth: .infinity)
-                .inspectorField(height: 28)
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(Color.red.opacity(0.88))
+            InspectorActionButton(
+                selection.count == 1 ? "Cut Word" : "Cut \(selection.count) Words",
+                systemImage: "scissors",
+                role: .destructive,
+                action: cutSelection
+            )
 
             InspectorClearButton(help: "Clear selection") {
                 self.selection = nil
@@ -2355,22 +2347,6 @@ private struct StudioZoomCueBlock: View {
 
 // MARK: - Inspector
 
-private enum StudioBackgroundKind: String, CaseIterable, Identifiable {
-    case color
-    case gradient
-    case wallpaper
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .color: "Color"
-        case .gradient: "Gradient"
-        case .wallpaper: "Wallpaper"
-        }
-    }
-}
-
 private extension ZoomAnchorMode {
     var inspectorTitle: String {
         switch self {
@@ -2381,7 +2357,7 @@ private extension ZoomAnchorMode {
     }
 }
 
-private enum StudioInspectorSection: Hashable {
+private enum StudioInspectorSection: String, Hashable, CaseIterable {
     case background
     case layout
     case motion
@@ -2390,6 +2366,22 @@ private enum StudioInspectorSection: Hashable {
     case transcription
     case camera
     case audio
+}
+
+private enum StudioInspectorSectionState {
+    static let expandedSectionsKey = "studioInspector.expandedSections"
+    static let defaultSections: Set<StudioInspectorSection> = [.background, .layout, .motion]
+
+    static func load() -> Set<StudioInspectorSection> {
+        guard let rawValues = UserDefaults.standard.stringArray(forKey: expandedSectionsKey) else {
+            return defaultSections
+        }
+        return Set(rawValues.compactMap(StudioInspectorSection.init(rawValue:)))
+    }
+
+    static func save(_ sections: Set<StudioInspectorSection>) {
+        UserDefaults.standard.set(sections.map(\.rawValue), forKey: expandedSectionsKey)
+    }
 }
 
 private enum StudioTranscriptTab: CaseIterable, Identifiable {
@@ -2407,22 +2399,58 @@ private enum StudioTranscriptTab: CaseIterable, Identifiable {
 }
 
 private struct StudioInspector: View {
+    /// Whole-number playback rates offered for a clip, within
+    /// `RecordingClipSegment`'s 1...8 range.
+    private static let clipSpeedPresets: [Double] = [1, 2, 3, 4, 6, 8]
+
     @Bindable var model: RecordingStudioModel
     @State private var wallpaperStore = AnnotationWallpaperStore.shared
     @State private var stylePresetStore = RecordingStudioStylePresetStore.shared
-    @State private var expandedSections: Set<StudioInspectorSection> = [
-        .background, .layout, .motion
-    ]
+    @State private var expandedSections = StudioInspectorSectionState.load()
     @State private var transcriptTab: StudioTranscriptTab = .captions
+    @State private var isAudioExportOptionsPresented = false
     @Environment(\.colorScheme) private var colorScheme
-
-    private let swatchColumns = [GridItem(.adaptive(minimum: 30, maximum: 44), spacing: 6)]
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
 
     var body: some View {
         ScrollView(.vertical) {
             VStack(alignment: .leading, spacing: 0) {
+                // Timeline selections edit at the top, where attention lands
+                // after clicking a zoom or clip, instead of pushing the
+                // sections below around mid-panel.
+                if let selected = model.selectedCue {
+                    InspectorSection(
+                        title: "Selected Zoom",
+                        accessory: {
+                            InspectorToggle(
+                                "Use this zoom",
+                                isOn: Binding(
+                                    get: { selected.isEnabled },
+                                    set: { isEnabled in
+                                        var updated = selected
+                                        updated.isEnabled = isEnabled
+                                        model.updateZoomCue(updated)
+                                    }
+                                )
+                            )
+                        }
+                    ) {
+                        selectedZoomControls(for: selected)
+                    }
+                    InspectorSectionDivider()
+                } else if let selectedClip = model.selectedClip {
+                    InspectorSection("Selected Clip") {
+                        selectedClipControls(for: selectedClip)
+                    }
+                    InspectorSectionDivider()
+                }
+
                 InspectorDisclosureSection(
                     title: "Background",
+                    summary: StudioInspectorSummary.background(
+                        model.style.background,
+                        aspect: model.exportAspect
+                    ),
                     isExpanded: expansionBinding(for: .background),
                     accessory: {
                         if model.style.background != .none {
@@ -2437,10 +2465,11 @@ private struct StudioInspector: View {
 
                 InspectorDisclosureSection(
                     title: "Layout",
+                    summary: usesDefaultLayout ? nil : "Custom",
                     isExpanded: expansionBinding(for: .layout),
                     accessory: {
                         if !usesDefaultLayout {
-                            InspectorClearButton(help: "Reset layout") {
+                            InspectorResetButton(help: "Reset layout") {
                                 model.style.padding = 0.06
                                 model.style.cornerRadius = 0.02
                                 model.style.shadow = 0.45
@@ -2451,47 +2480,12 @@ private struct StudioInspector: View {
                     layoutControls
                 }
 
-                // Selection editing surfaces here (between Layout and Zoom &
-                // Clicks) whenever a zoom or clip is selected on the timeline.
-                if let selected = model.selectedCue {
-                    InspectorSection(
-                        title: "Selected Zoom",
-                        accessory: {
-                            Toggle(
-                                "Use this zoom",
-                                isOn: Binding(
-                                    get: { selected.isEnabled },
-                                    set: { isEnabled in
-                                        var updated = selected
-                                        updated.isEnabled = isEnabled
-                                        model.updateZoomCue(updated)
-                                    }
-                                )
-                            )
-                            .labelsHidden()
-                            .toggleStyle(.switch)
-                            .controlSize(.mini)
-                            .help("Use this zoom")
-                        }
-                    ) {
-                        selectedZoomControls(for: selected)
-                    }
-                    InspectorSectionDivider()
-                } else if let selectedClip = model.selectedClip {
-                    InspectorSection("Selected Clip") {
-                        selectedClipControls(for: selectedClip)
-                    }
-                    InspectorSectionDivider()
-                }
-
                 InspectorDisclosureSection(
                     title: "Zoom & Clicks",
+                    summary: zoomSummary,
                     isExpanded: expansionBinding(for: .motion),
                     accessory: {
-                        Toggle("Enable zooms", isOn: $model.zoomEnabled)
-                            .labelsHidden()
-                            .toggleStyle(.switch)
-                            .controlSize(.mini)
+                        sectionToggle("Enable zooms", isOn: $model.zoomEnabled, section: .motion)
                     }
                 ) {
                     zoomControls
@@ -2500,21 +2494,27 @@ private struct StudioInspector: View {
                 if model.pointerIsSynthesized {
                     InspectorDisclosureSection(
                         title: "Cursor",
+                        summary: model.style.hidesCursor
+                            ? "Hidden"
+                            : InspectorValueFormat.magnification(fractionDigits: 1)
+                                .displayString(for: model.style.cursorScale),
                         isExpanded: expansionBinding(for: .cursor),
                         accessory: {
-                            if model.style.cursorScale != RecordingStudioStyle.defaultCursorScale {
-                                InspectorClearButton(help: "Reset cursor size") {
-                                    model.style.cursorScale = RecordingStudioStyle.defaultCursorScale
+                            HStack(spacing: 5) {
+                                if model.style.cursorScale != RecordingStudioStyle.defaultCursorScale {
+                                    InspectorResetButton(help: "Reset cursor size") {
+                                        model.style.cursorScale = RecordingStudioStyle.defaultCursorScale
+                                    }
                                 }
+                                sectionToggle(
+                                    "Show mouse pointer",
+                                    isOn: Binding(
+                                        get: { !model.style.hidesCursor },
+                                        set: { model.style.hidesCursor = !$0 }
+                                    ),
+                                    section: .cursor
+                                )
                             }
-                            Toggle("Show mouse pointer", isOn: Binding(
-                                get: { !model.style.hidesCursor },
-                                set: { model.style.hidesCursor = !$0 }
-                            ))
-                            .labelsHidden()
-                            .toggleStyle(.switch)
-                            .controlSize(.mini)
-                            .help("Show mouse pointer")
                         }
                     ) {
                         cursorControls
@@ -2524,12 +2524,12 @@ private struct StudioInspector: View {
                 if model.hasKeystrokes {
                     InspectorDisclosureSection(
                         title: "Keystrokes",
+                        summary: model.showsKeystrokes
+                            ? StudioInspectorSummary.keystrokePlacement(model.keystrokePlacement)
+                            : nil,
                         isExpanded: expansionBinding(for: .keystrokes),
                         accessory: {
-                            Toggle("Show keystrokes", isOn: $model.showsKeystrokes)
-                                .labelsHidden()
-                                .toggleStyle(.switch)
-                                .controlSize(.mini)
+                            sectionToggle("Show keystrokes", isOn: $model.showsKeystrokes, section: .keystrokes)
                         }
                     ) {
                         keystrokeControls
@@ -2539,33 +2539,19 @@ private struct StudioInspector: View {
                 if model.canTranscribe || model.hasSubtitles {
                     InspectorDisclosureSection(
                         title: "Transcription",
+                        summary: transcriptionSummary,
                         isExpanded: expansionBinding(for: .transcription),
                         accessory: {
-                            if model.hasSubtitles {
-                                HStack(spacing: 2) {
-                                    if model.transcriptionState.isTranscribing {
-                                        ProgressView()
-                                            .controlSize(.mini)
-                                            .frame(width: 18, height: 18)
-                                    } else if model.canTranscribe {
-                                        InspectorIconButton(
-                                            systemName: "arrow.clockwise",
-                                            help: "Transcribe again"
-                                        ) {
-                                            model.transcribe()
-                                        }
-                                    }
-
-                                    InspectorClearButton(help: "Remove subtitles") {
-                                        model.removeTranscription()
-                                    }
-
-                                    Toggle("Show subtitles", isOn: $model.showsSubtitles)
-                                        .labelsHidden()
-                                        .toggleStyle(.switch)
-                                        .controlSize(.mini)
-                                        .padding(.leading, 4)
-                                }
+                            if model.transcriptionState.isTranscribing {
+                                ProgressView()
+                                    .controlSize(.mini)
+                                    .frame(width: 24, height: 24)
+                            } else if model.hasSubtitles {
+                                sectionToggle(
+                                    "Show subtitles",
+                                    isOn: $model.showsSubtitles,
+                                    section: .transcription
+                                )
                             }
                         }
                     ) {
@@ -2576,12 +2562,12 @@ private struct StudioInspector: View {
                 if model.hasCameraVideo {
                     InspectorDisclosureSection(
                         title: "Camera",
+                        summary: model.style.camera.isVisible
+                            ? InspectorValueFormat.percent().displayString(for: model.style.camera.size)
+                            : nil,
                         isExpanded: expansionBinding(for: .camera),
                         accessory: {
-                            Toggle("Show camera", isOn: $model.style.camera.isVisible)
-                                .labelsHidden()
-                                .toggleStyle(.switch)
-                                .controlSize(.mini)
+                            sectionToggle("Show camera", isOn: $model.style.camera.isVisible, section: .camera)
                         }
                     ) {
                         cameraControls
@@ -2590,15 +2576,18 @@ private struct StudioInspector: View {
 
                 InspectorDisclosureSection(
                     title: "Audio",
+                    summary: audioSummary,
                     isExpanded: expansionBinding(for: .audio),
                     accessory: {
                         if model.replacementAudio != nil {
-                            InspectorClearButton(
-                                help: model.hasRecordedAudio
-                                    ? "Use the recorded audio again"
-                                    : "Remove this audio"
-                            ) {
-                                model.removeReplacementAudio()
+                            if model.hasRecordedAudio {
+                                InspectorResetButton(help: "Use the recorded audio again") {
+                                    model.removeReplacementAudio()
+                                }
+                            } else {
+                                InspectorClearButton(help: "Remove this audio") {
+                                    model.removeReplacementAudio()
+                                }
                             }
                         }
                     }
@@ -2622,8 +2611,17 @@ private struct StudioInspector: View {
         .scrollContentBackground(.hidden)
         .scrollEdgeEffectSoftIfAvailable()
         .background(sidebarBackground)
-        .inspectorColumnWidth(min: 260, ideal: 280, max: 440)
-        .frame(minWidth: 260, maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .inspectorColumnWidth(
+            min: InspectorMetrics.columnMinWidth,
+            ideal: InspectorMetrics.columnIdealWidth,
+            max: InspectorMetrics.columnMaxWidth
+        )
+        .frame(
+            minWidth: InspectorMetrics.columnMinWidth,
+            maxWidth: .infinity,
+            maxHeight: .infinity,
+            alignment: .topLeading
+        )
         .task {
             await wallpaperStore.reload()
         }
@@ -2631,136 +2629,50 @@ private struct StudioInspector: View {
 
     // MARK: Background
 
-    private var backgroundKind: StudioBackgroundKind? {
-        switch model.style.background {
-        case .none: nil
-        case .solid: .color
-        case .gradient: .gradient
-        case .customWallpaper: .wallpaper
-        }
-    }
-
     private var backgroundControls: some View {
-        VStack(alignment: .leading, spacing: InspectorMetrics.rowSpacing) {
-            InspectorGroupLabel("Aspect")
-            InspectorSegmented(
-                options: ExportAspectPreset.allCases,
-                isSelected: { $0 == model.exportAspect },
-                onTap: { model.exportAspect = $0 },
-                label: { preset in
-                    Text(preset.title)
-                        .font(.inspectorLabel)
-                        .help(preset.help)
-                }
-            )
-            if model.exportAspect != .original {
+        VStack(alignment: .leading, spacing: InspectorMetrics.groupSpacing) {
+            VStack(alignment: .leading, spacing: InspectorMetrics.groupLabelSpacing) {
+                InspectorGroupLabel("Aspect ratio")
+
                 InspectorSegmented(
-                    options: ExportAspectContentMode.allCases,
-                    isSelected: { $0 == model.exportAspectMode },
-                    onTap: { model.exportAspectMode = $0 },
-                    label: { mode in
-                        Text(mode.title)
-                            .font(.inspectorLabel)
-                            .help(mode.help)
+                    options: ExportAspectPreset.allCases,
+                    isSelected: { $0 == model.exportAspect },
+                    onTap: { model.exportAspect = $0 },
+                    label: { preset in
+                        Text(preset.title)
+                            .font(.inspectorSegment)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                            .help(preset.help)
                     }
                 )
-                Text(
-                    model.exportAspectMode == .fill
-                        ? "Crops into the recording; the camera follows your cursor and zooms."
-                        : "Shows the whole recording framed on the background."
+
+                if model.exportAspect != .original {
+                    InspectorSegmented(
+                        options: ExportAspectContentMode.allCases,
+                        isSelected: { $0 == model.exportAspectMode },
+                        onTap: { model.exportAspectMode = $0 },
+                        label: { mode in
+                            Text(mode.title)
+                                .font(.inspectorSegment)
+                                .help(mode.help)
+                        }
+                    )
+                }
+            }
+
+            VStack(alignment: .leading, spacing: InspectorMetrics.groupLabelSpacing) {
+                InspectorGroupLabel("Fill")
+
+                InspectorBackgroundFillPicker(
+                    style: $model.style.background,
+                    rememberedWallpaper: nil,
+                    wallpaperStore: wallpaperStore,
+                    onEditorAction: {},
+                    onPickWallpaper: pickWallpaper
                 )
-                .font(.inspectorLabel)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            }
-
-            InspectorGroupLabel("Style")
-            InspectorSegmented(
-                options: StudioBackgroundKind.allCases,
-                isSelected: { $0 == backgroundKind },
-                onTap: { kind in
-                    switch kind {
-                    case .color:
-                        model.style.background = .solid(.graphite)
-                    case .gradient:
-                        model.style.background = RecordingStudioStyle.defaultBackground
-                    case .wallpaper:
-                        if let wallpaper = availableWallpapers.first {
-                            selectWallpaper(wallpaper)
-                        } else {
-                            pickWallpaper()
-                        }
-                    }
-                },
-                label: { Text($0.title).font(.inspectorLabel) }
-            )
-
-            if backgroundKind == .color {
-                LazyVGrid(columns: swatchColumns, spacing: 6) {
-                    ForEach(AnnotationBackgroundColor.plainPresets) { preset in
-                        InspectorTile(
-                            title: preset.title,
-                            isSelected: model.style.background == .solid(preset),
-                            action: { model.style.background = .solid(preset) }
-                        ) {
-                            preset.color
-                        }
-                    }
-                    InspectorCustomBackgroundColorTile(style: $model.style.background)
-                }
-            }
-
-            if backgroundKind == .gradient {
-                LazyVGrid(columns: swatchColumns, spacing: 6) {
-                    ForEach(AnnotationBackgroundGradient.presets) { preset in
-                        InspectorTile(
-                            title: preset.title,
-                            isSelected: model.style.background == .gradient(preset),
-                            action: { model.style.background = .gradient(preset) }
-                        ) {
-                            LinearGradient(
-                                colors: preset.colors.map(\.color),
-                                startPoint: preset.startPoint,
-                                endPoint: preset.endPoint
-                            )
-                        }
-                    }
-                }
-            }
-
-            if backgroundKind == .wallpaper {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 62), spacing: 7)], spacing: 7) {
-                    ForEach(availableWallpapers.prefix(12)) { wallpaper in
-                        InspectorTile(
-                            title: wallpaper.title,
-                            aspectRatio: 1.35,
-                            isSelected: model.style.background == .customWallpaper(wallpaper),
-                            action: { selectWallpaper(wallpaper) }
-                        ) {
-                            AnnotationCustomWallpaperPreview(wallpaper: wallpaper)
-                        }
-                    }
-                }
-
-                inspectorAction("Choose Image…", systemImage: "photo.badge.plus") {
-                    pickWallpaper()
-                }
             }
         }
-    }
-
-    private var availableWallpapers: [AnnotationCustomWallpaper] {
-        let candidates = wallpaperStore.recentWallpapers
-            + AnnotationWallpaperPack.builtIn.flatMap { wallpaperStore.wallpapers(for: $0) }
-        var paths = Set<String>()
-        return candidates.filter { wallpaper in
-            paths.insert(wallpaper.url.standardizedFileURL.path).inserted
-        }
-    }
-
-    private func selectWallpaper(_ wallpaper: AnnotationCustomWallpaper) {
-        wallpaperStore.addRecentWallpaper(wallpaper.url)
-        model.style.background = .customWallpaper(wallpaper)
     }
 
     private func pickWallpaper() {
@@ -2772,7 +2684,8 @@ private struct StudioInspector: View {
         panel.title = "Choose Video Background Wallpaper"
         panel.begin { response in
             guard response == .OK, let url = panel.url else { return }
-            selectWallpaper(AnnotationCustomWallpaper(url: url))
+            wallpaperStore.addRecentWallpaper(url)
+            model.style.background = .customWallpaper(AnnotationCustomWallpaper(url: url))
         }
     }
 
@@ -2780,18 +2693,22 @@ private struct StudioInspector: View {
 
     private var layoutControls: some View {
         VStack(alignment: .leading, spacing: InspectorMetrics.rowSpacing) {
-            InspectorSlider(
-                "Padding",
-                value: $model.style.padding,
-                range: 0...0.18,
-                format: .percent()
-            )
-            InspectorSlider(
-                "Corners",
-                value: $model.style.cornerRadius,
-                range: 0...0.08,
-                format: .percent()
-            )
+            InspectorFieldPair {
+                InspectorSlider(
+                    "Padding",
+                    value: $model.style.padding,
+                    range: 0...0.18,
+                    format: .percent()
+                )
+            } trailing: {
+                InspectorSlider(
+                    "Corners",
+                    value: $model.style.cornerRadius,
+                    range: 0...0.08,
+                    format: .percent()
+                )
+            }
+
             InspectorSlider(
                 "Shadow",
                 value: $model.style.shadow,
@@ -2804,30 +2721,31 @@ private struct StudioInspector: View {
     // MARK: Zoom
 
     private var zoomControls: some View {
-        VStack(alignment: .leading, spacing: InspectorMetrics.rowSpacing) {
-            let pressCount = model.recordedPressTimes.count
-            Text(pressCount == 1 ? "1 recorded click" : "\(pressCount) recorded clicks")
-                .font(.inspectorLabel)
-                .foregroundStyle(.secondary)
-
-            HStack(spacing: 7) {
-                inspectorAction("Auto Zoom", systemImage: "pointer.arrow.rays") {
+        let pressCount = model.recordedPressTimes.count
+        return VStack(alignment: .leading, spacing: InspectorMetrics.rowSpacing) {
+            HStack(spacing: InspectorMetrics.rowSpacing) {
+                InspectorActionButton("Auto Zoom", systemImage: "pointer.arrow.rays") {
                     model.resynthesizeZoomCues()
                 }
                 .disabled(pressCount == 0)
+                .help(
+                    pressCount == 0
+                        ? "No clicks were recorded"
+                        : "Turn the \(pressCount == 1 ? "recorded click" : "\(pressCount) recorded clicks") into smooth camera moves"
+                )
 
-                inspectorAction("Add Zoom", systemImage: "plus.magnifyingglass") {
+                InspectorActionButton("Add Zoom", systemImage: "plus.magnifyingglass") {
                     model.addZoomCue(at: model.currentTime)
                 }
+                .help("Add a zoom at the playhead, or drag across the zoom lane")
             }
 
-            if model.selectedCue == nil {
-                Text(model.zoomCues.isEmpty
-                    ? "Click Auto Zoom to turn recorded clicks into smooth camera moves."
-                    : "Select a zoom block on the timeline to adjust it.")
-                    .font(.inspectorLabel)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+            if model.zoomCues.isEmpty {
+                InspectorHint(
+                    pressCount > 0
+                        ? "Auto Zoom turns your recorded clicks into camera moves."
+                        : "Drag across the zoom lane on the timeline to add a zoom."
+                )
             }
         }
         .disabled(!model.zoomEnabled)
@@ -2837,7 +2755,7 @@ private struct StudioInspector: View {
     private func selectedZoomControls(for selected: ZoomCue) -> some View {
         VStack(alignment: .leading, spacing: InspectorMetrics.rowSpacing) {
             VStack(alignment: .leading, spacing: InspectorMetrics.groupLabelSpacing) {
-                InspectorGroupLabel("Camera Focus")
+                InspectorGroupLabel("Camera focus")
 
                 InspectorSegmented(
                     options: ZoomAnchorMode.allCases,
@@ -2851,25 +2769,13 @@ private struct StudioInspector: View {
                         }
                         model.updateZoomCue(updated)
                     },
-                    label: { Text($0.inspectorTitle).font(.inspectorLabel) }
+                    label: { Text($0.inspectorTitle).font(.inspectorSegment) }
                 )
             }
 
-            InspectorSlider(
-                "Zoom Amount",
-                value: Binding(
-                    get: { CGFloat(selected.zoom) },
-                    set: { newValue in
-                        var updated = selected
-                        updated.zoom = Double(newValue)
-                        model.updateZoomCue(updated)
-                    }
-                ),
-                range: 1.1...3,
-                format: .magnification(fractionDigits: 1)
-            )
-
             if selected.anchorMode == .pinnedAnchor {
+                zoomAmountSlider(for: selected)
+
                 VStack(alignment: .leading, spacing: InspectorMetrics.groupLabelSpacing) {
                     HStack(spacing: 8) {
                         InspectorGroupLabel("Target position")
@@ -2891,40 +2797,62 @@ private struct StudioInspector: View {
                         magnification: selected.zoom
                     )
                 }
-
-                inspectorAction("Set Target to Pointer", systemImage: "scope") {
-                    guard let pointer = model.pointerLocation(at: model.currentTime) else { return }
-                    var updated = selected
-                    updated.pinnedPoint = pointer
-                    model.updateZoomCue(updated)
-                }
             } else {
-                InspectorSlider(
-                    "Edge in Frame",
-                    value: Binding(
-                        get: { CGFloat(selected.boundsBias) },
-                        set: { boundsBias in
-                            var updated = selected
-                            updated.boundsBias = Double(boundsBias)
-                            model.updateZoomCue(updated)
-                        }
-                    ),
-                    range: 0...1,
-                    format: .percent()
-                )
+                InspectorFieldPair {
+                    zoomAmountSlider(for: selected)
+                } trailing: {
+                    InspectorSlider(
+                        "Edge",
+                        value: Binding(
+                            get: { CGFloat(selected.boundsBias) },
+                            set: { boundsBias in
+                                var updated = selected
+                                updated.boundsBias = Double(boundsBias)
+                                model.updateZoomCue(updated)
+                            }
+                        ),
+                        range: 0...1,
+                        format: .percent()
+                    )
+                    .help("How much of the frame's edge stays in view while zoomed")
+                }
             }
 
-            inspectorAction(
-                "Remove Zoom",
-                systemImage: "trash",
-                role: .destructive
-            ) {
-                model.removeZoomCue(id: selected.id)
+            HStack(spacing: InspectorMetrics.rowSpacing) {
+                if selected.anchorMode == .pinnedAnchor {
+                    InspectorActionButton("Target Pointer", systemImage: "scope") {
+                        guard let pointer = model.pointerLocation(at: model.currentTime) else { return }
+                        var updated = selected
+                        updated.pinnedPoint = pointer
+                        model.updateZoomCue(updated)
+                    }
+                    .help("Aim the zoom at the pointer's position under the playhead")
+                }
+
+                InspectorActionButton("Remove", systemImage: "trash", role: .destructive) {
+                    model.removeZoomCue(id: selected.id)
+                }
+                .help("Remove the selected zoom")
             }
-            .help("Remove the selected zoom")
         }
         .disabled(!model.zoomEnabled)
         .opacity(model.zoomEnabled ? 1 : 0.48)
+    }
+
+    private func zoomAmountSlider(for selected: ZoomCue) -> some View {
+        InspectorSlider(
+            "Zoom",
+            value: Binding(
+                get: { CGFloat(selected.zoom) },
+                set: { newValue in
+                    var updated = selected
+                    updated.zoom = Double(newValue)
+                    model.updateZoomCue(updated)
+                }
+            ),
+            range: 1.1...3,
+            format: .magnification(fractionDigits: 1)
+        )
     }
 
     private func zoomTargetPositionText(_ position: CGPoint) -> String {
@@ -2937,21 +2865,26 @@ private struct StudioInspector: View {
 
     private func selectedClipControls(for clip: RecordingClipSegment) -> some View {
         VStack(alignment: .leading, spacing: InspectorMetrics.rowSpacing) {
-            InspectorSlider(
-                "Speed",
-                value: Binding(
-                    get: { CGFloat(clip.speed) },
-                    set: { model.setClipSpeed(Double($0.rounded()), forClipID: clip.id) }
-                ),
-                range: CGFloat(RecordingClipSegment.minimumSpeed)...CGFloat(RecordingClipSegment.maximumSpeed),
-                format: .magnification(fractionDigits: 0)
-            )
+            VStack(alignment: .leading, spacing: InspectorMetrics.groupLabelSpacing) {
+                InspectorGroupLabel("Speed")
 
-            if clip.speed != 1 {
-                Text("Plays this clip \(Int(clip.speed))× faster. Audio speeds up with it.")
-                    .font(.inspectorLabel)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                InspectorSegmented(
+                    options: Self.clipSpeedPresets,
+                    isSelected: { abs($0 - clip.speed) < 0.001 },
+                    onTap: { model.setClipSpeed($0, forClipID: clip.id) },
+                    label: { speed in
+                        Text(InspectorValueFormat.magnification(fractionDigits: 0).displayString(for: speed))
+                            .font(.inspectorSegment)
+                    }
+                )
+                .help("Audio speeds up with the clip")
+            }
+
+            if model.canDeleteSelectedClip {
+                InspectorActionButton("Delete Clip", systemImage: "trash", role: .destructive) {
+                    model.deleteSelectedClip()
+                }
+                .help("Remove this part of the video")
             }
         }
     }
@@ -2966,43 +2899,27 @@ private struct StudioInspector: View {
                 range: 1...4,
                 format: .magnification(fractionDigits: 1)
             )
-            .disabled(model.style.hidesCursor)
 
-            if model.canShowPressEffects && !model.style.hidesCursor {
-                HStack(spacing: 8) {
-                    Text("Click highlights")
-                        .font(.inspectorLabel)
-                        .foregroundStyle(.primary.opacity(0.82))
-
-                    Spacer(minLength: 8)
-
-                    Toggle("Click highlights", isOn: $model.showsClickEffects)
-                        .labelsHidden()
-                        .toggleStyle(.switch)
-                        .controlSize(.small)
-                }
+            if model.canShowPressEffects {
+                InspectorToggleRow("Click highlights", isOn: $model.showsClickEffects)
             }
         }
+        .disabled(model.style.hidesCursor)
+        .opacity(model.style.hidesCursor ? 0.48 : 1)
     }
 
     // MARK: Keystrokes
 
     private var keystrokeControls: some View {
         VStack(alignment: .leading, spacing: InspectorMetrics.rowSpacing) {
-            VStack(alignment: .leading, spacing: InspectorMetrics.groupLabelSpacing) {
-                InspectorGroupLabel("Top")
+            InspectorRow("Top") {
                 keystrokePlacementRow([.topLeft, .topCenter, .topRight])
             }
-            VStack(alignment: .leading, spacing: InspectorMetrics.groupLabelSpacing) {
-                InspectorGroupLabel("Bottom")
+            InspectorRow("Bottom") {
                 keystrokePlacementRow([.bottomLeft, .bottomCenter, .bottomRight])
             }
-
-            Text("Shortcuts you pressed while recording appear as a caption here.")
-                .font(.inspectorLabel)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
         }
+        .help("Shortcuts you pressed while recording appear as a caption")
         .disabled(!model.showsKeystrokes)
         .opacity(model.showsKeystrokes ? 1 : 0.48)
     }
@@ -3014,7 +2931,7 @@ private struct StudioInspector: View {
             options: options,
             isSelected: { $0 == model.keystrokePlacement },
             onTap: { model.keystrokePlacement = $0 },
-            label: { Text($0.title).font(.inspectorLabel) }
+            label: { Text($0.title).font(.inspectorSegment) }
         )
     }
 
@@ -3028,33 +2945,40 @@ private struct StudioInspector: View {
                 HStack(spacing: 8) {
                     ProgressView()
                         .controlSize(.small)
-                    Text("Transcribing narration…")
-                        .font(.inspectorLabel)
-                        .foregroundStyle(.secondary)
+                    InspectorHint("Transcribing narration…")
                 }
             case .failed(let message):
-                Text(message)
-                    .font(.inspectorLabel)
-                    .foregroundStyle(.orange)
-                    .fixedSize(horizontal: false, vertical: true)
+                InspectorHint(message, tint: .orange)
 
-                inspectorAction("Try Again", systemImage: "waveform") {
+                InspectorActionButton("Try Again", systemImage: "waveform") {
                     model.transcribe()
                 }
             case .idle:
                 if model.hasSubtitles {
                     subtitleEditor
+                    transcriptionActions
                 } else {
-                    inspectorAction("Transcribe Narration", systemImage: "waveform") {
+                    InspectorActionButton("Transcribe Narration", systemImage: "waveform") {
                         model.transcribe()
                     }
-
-                    Text("Turns your microphone narration into subtitles, transcribed on this Mac.")
-                        .font(.inspectorLabel)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    .help("Turn your microphone narration into subtitles, transcribed on this Mac")
                 }
             }
+        }
+    }
+
+    private var transcriptionActions: some View {
+        HStack(spacing: InspectorMetrics.rowSpacing) {
+            if model.canTranscribe {
+                InspectorActionButton("Transcribe Again", systemImage: "arrow.clockwise") {
+                    model.transcribe()
+                }
+            }
+
+            InspectorActionButton("Remove", systemImage: "trash", role: .destructive) {
+                model.removeTranscription()
+            }
+            .help("Remove the subtitles")
         }
     }
 
@@ -3066,7 +2990,7 @@ private struct StudioInspector: View {
                 onTap: { transcriptTab = $0 },
                 label: { tab in
                     Text(tab.title)
-                        .font(.system(size: 10.5, weight: .medium))
+                        .font(.inspectorSegment)
                         .lineLimit(1)
                 }
             )
@@ -3084,50 +3008,37 @@ private struct StudioInspector: View {
         let verticalRange = SubtitleBarStyle.verticalRange
         let fontScaleRange = SubtitleBarStyle.fontScaleRange
         return VStack(alignment: .leading, spacing: InspectorMetrics.rowSpacing) {
-            InspectorSlider(
-                "Position",
-                value: Binding(
-                    get: { CGFloat(model.subtitleStyle.verticalPosition) },
-                    set: { model.subtitleStyle.verticalPosition = Double($0) }
-                ),
-                range: CGFloat(verticalRange.lowerBound)...CGFloat(verticalRange.upperBound),
-                format: .percent()
-            )
-
-            InspectorSlider(
-                "Text Size",
-                value: Binding(
-                    get: { CGFloat(model.subtitleStyle.fontScale) },
-                    set: { model.subtitleStyle.fontScale = Double($0) }
-                ),
-                range: CGFloat(fontScaleRange.lowerBound)...CGFloat(fontScaleRange.upperBound),
-                format: .magnification(fractionDigits: 1)
-            )
+            InspectorFieldPair {
+                InspectorSlider(
+                    "Position",
+                    value: Binding(
+                        get: { CGFloat(model.subtitleStyle.verticalPosition) },
+                        set: { model.subtitleStyle.verticalPosition = Double($0) }
+                    ),
+                    range: CGFloat(verticalRange.lowerBound)...CGFloat(verticalRange.upperBound),
+                    format: .percent()
+                )
+            } trailing: {
+                InspectorSlider(
+                    "Size",
+                    value: Binding(
+                        get: { CGFloat(model.subtitleStyle.fontScale) },
+                        set: { model.subtitleStyle.fontScale = Double($0) }
+                    ),
+                    range: CGFloat(fontScaleRange.lowerBound)...CGFloat(fontScaleRange.upperBound),
+                    format: .magnification(fractionDigits: 1)
+                )
+            }
 
             if model.hasTranscriptWords {
-                HStack(spacing: 8) {
-                    Text("Highlight spoken word")
-                        .font(.inspectorLabel)
-                        .foregroundStyle(.primary.opacity(0.82))
-
-                    Spacer(minLength: 8)
-
-                    Toggle(
-                        "Highlight spoken word",
-                        isOn: $model.subtitleStyle.highlightsSpokenWord
-                    )
-                    .labelsHidden()
-                    .toggleStyle(.switch)
-                    .controlSize(.mini)
-                }
+                InspectorToggleRow(
+                    "Highlight spoken word",
+                    isOn: $model.subtitleStyle.highlightsSpokenWord
+                )
             }
 
             subtitleList
-
-            Text("Click a timestamp to jump there. Edit any line to fix the transcription.")
-                .font(.inspectorLabel)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+                .help("Click a timestamp to jump there. Edit any line to fix the transcription.")
         }
         .disabled(!model.showsSubtitles)
         .opacity(model.showsSubtitles ? 1 : 0.48)
@@ -3138,43 +3049,39 @@ private struct StudioInspector: View {
         if model.hasTranscriptWords {
             StudioTranscriptEditPanel(model: model)
 
-            if model.removableFillerWordCount > 0 {
-                inspectorAction(
-                    "Remove Filler Words (\(model.removableFillerWordCount))",
-                    systemImage: "scissors"
-                ) {
-                    model.removeFillerWords()
+            if model.removableFillerWordCount > 0 || model.trimmableSilenceCount > 0 {
+                HStack(spacing: InspectorMetrics.rowSpacing) {
+                    if model.removableFillerWordCount > 0 {
+                        InspectorActionButton(
+                            "Fillers (\(model.removableFillerWordCount))",
+                            systemImage: "scissors"
+                        ) {
+                            model.removeFillerWords()
+                        }
+                        .help("Cut every filler word, like “um” and “uh”")
+                    }
+
+                    if model.trimmableSilenceCount > 0 {
+                        InspectorActionButton(
+                            "Silences (\(model.trimmableSilenceCount))",
+                            systemImage: "waveform.badge.minus"
+                        ) {
+                            model.trimNarrationSilences()
+                        }
+                        .help("Trim long pauses in the narration")
+                    }
                 }
             }
 
-            if model.trimmableSilenceCount > 0 {
-                inspectorAction(
-                    "Trim Silences (\(model.trimmableSilenceCount))",
-                    systemImage: "waveform.badge.minus"
-                ) {
-                    model.trimNarrationSilences()
-                }
-            }
-
-            Text("Click a word to jump there. Shift-click to select a passage, then cut it to remove that part of the video.")
-                .font(.inspectorLabel)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+            InspectorHint("Click a word to jump there. Shift-click to select a passage, then cut it.")
         } else {
-            if model.canTranscribe {
-                inspectorAction("Transcribe Again to Edit", systemImage: "waveform") {
-                    model.transcribe()
-                }
-            }
-            Text("This transcription predates editing by text. Transcribe again to cut the video from its transcript.")
-                .font(.inspectorLabel)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+            InspectorHint("This transcription predates editing by text. Transcribe again to cut the video from its transcript.")
         }
     }
 
     private var subtitleList: some View {
-        ScrollViewReader { proxy in
+        let shape = RoundedRectangle(cornerRadius: InspectorMetrics.listRadius, style: .continuous)
+        return ScrollViewReader { proxy in
             ScrollView(.vertical) {
                 VStack(spacing: 0) {
                     let cues = model.subtitleCues
@@ -3195,11 +3102,8 @@ private struct StudioInspector: View {
                 }
             }
             .frame(maxHeight: 300)
-            .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(Color.primary.opacity(0.045))
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .background(shape.fill(InspectorControlPalette.trackFill(for: colorScheme)))
+            .clipShape(shape)
             .onChange(of: model.activeSubtitleCue?.id) { _, activeID in
                 // Follow playback through the list, but never yank the list
                 // around while the user is scrubbing or editing.
@@ -3214,25 +3118,22 @@ private struct StudioInspector: View {
     // MARK: Camera
 
     private var cameraControls: some View {
-        VStack(alignment: .leading, spacing: InspectorMetrics.rowSpacing) {
+        InspectorFieldPair {
             InspectorSlider(
                 "Size",
                 value: $model.style.camera.size,
                 range: 0.12...0.45,
                 format: .percent()
             )
+        } trailing: {
             InspectorSlider(
                 "Rounding",
                 value: $model.style.camera.roundness,
                 range: 0.05...0.5,
                 format: .percent()
             )
-
-            Text("Drag the camera directly on the canvas to place it.")
-                .font(.inspectorLabel)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
         }
+        .help("Drag the camera directly on the canvas to place it")
         .disabled(!model.style.camera.isVisible)
         .opacity(model.style.camera.isVisible ? 1 : 0.48)
     }
@@ -3249,20 +3150,14 @@ private struct StudioInspector: View {
             // be given a soundtrack - so only the export half is withheld.
             if model.hasAudio {
                 InspectorSlider("Volume", value: $model.audioVolume, range: 0...2, format: .percent())
-                InspectorSegmented(
-                    options: RecordingAudioFormat.allCases,
-                    isSelected: { $0 == model.audioExportFormat },
-                    onTap: { model.audioExportFormat = $0 },
-                    label: { Text($0.title).font(.inspectorLabel) }
-                )
             }
 
-            HStack(spacing: 6) {
+            HStack(spacing: InspectorMetrics.rowSpacing) {
                 if model.hasAudio {
                     audioExportButton
                 }
 
-                inspectorAction(
+                InspectorActionButton(
                     model.hasRecordedAudio ? "Replace" : "Add",
                     systemImage: "waveform.badge.plus"
                 ) {
@@ -3280,24 +3175,28 @@ private struct StudioInspector: View {
             }
 
             if let message = model.replacementAudioError {
-                Text(message)
-                    .font(.inspectorLabel)
-                    .foregroundStyle(.orange)
-                    .fixedSize(horizontal: false, vertical: true)
+                InspectorHint(message, tint: .orange)
             }
         }
     }
 
     /// One button carrying the whole export state, so progress and results
-    /// never cost the section an extra row.
+    /// never cost the section an extra row. The format is asked for at export
+    /// time, the same way video export asks for its options.
     @ViewBuilder
     private var audioExportButton: some View {
         switch model.audioExportState {
         case .idle:
-            inspectorAction("Export", systemImage: "arrow.down.circle") {
-                model.exportAudio()
+            InspectorActionButton("Export…", systemImage: "arrow.down.circle") {
+                isAudioExportOptionsPresented = true
             }
             .help("Export just the soundtrack of the current cut")
+            .popover(isPresented: $isAudioExportOptionsPresented, arrowEdge: .bottom) {
+                StudioAudioExportOptions(format: $model.audioExportFormat) {
+                    isAudioExportOptionsPresented = false
+                    model.exportAudio()
+                }
+            }
         case .exporting(let progress):
             audioExportChrome(help: "Cancel") {
                 model.cancelAudioExport()
@@ -3330,8 +3229,8 @@ private struct StudioInspector: View {
         }
     }
 
-    /// Matches `inspectorAction`'s chrome for the export button's non-idle
-    /// states, which carry richer content than a symbol and a title.
+    /// Matches `InspectorActionButton`'s chrome for the export button's
+    /// non-idle states, which carry richer content than a symbol and a title.
     private func audioExportChrome<Label: View>(
         help: String,
         action: @escaping () -> Void,
@@ -3343,7 +3242,7 @@ private struct StudioInspector: View {
             }
             .lineLimit(1)
             .frame(maxWidth: .infinity)
-            .inspectorField(height: 28)
+            .inspectorField()
         }
         .buttonStyle(.plain)
         .help(help)
@@ -3377,8 +3276,9 @@ private struct StudioInspector: View {
                 .font(.inspectorLabel.monospacedDigit())
                 .foregroundStyle(.secondary)
         }
+        .padding(.horizontal, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .inspectorField(height: 30)
+        .inspectorField()
         .help(replacement.displayName)
     }
 
@@ -3406,6 +3306,37 @@ private struct StudioInspector: View {
         return value < 60 ? String(format: "%.1fs", value) : clockText(value)
     }
 
+    // MARK: Summaries
+
+    private var zoomSummary: String? {
+        guard model.zoomEnabled else { return nil }
+        let count = model.zoomCues.count
+        return count == 1 ? "1 zoom" : "\(count) zooms"
+    }
+
+    private var transcriptionSummary: String? {
+        switch model.transcriptionState {
+        case .transcribing:
+            return "Transcribing…"
+        case .failed:
+            return "Failed"
+        case .idle:
+            guard model.hasSubtitles, model.showsSubtitles else { return nil }
+            let count = model.subtitleCues.count
+            return count == 1 ? "1 line" : "\(count) lines"
+        }
+    }
+
+    private var audioSummary: String? {
+        if let replacement = model.replacementAudio {
+            return replacement.displayName
+        }
+        guard model.hasAudio, abs(model.audioVolume - 1) > 0.001 else { return nil }
+        return "Volume \(InspectorValueFormat.percent().displayString(for: model.audioVolume))"
+    }
+
+    // MARK: Helpers
+
     private var usesDefaultLayout: Bool {
         abs(model.style.padding - 0.06) < 0.0001
             && abs(model.style.cornerRadius - 0.02) < 0.0001
@@ -3416,37 +3347,126 @@ private struct StudioInspector: View {
         InspectorControlPalette.panelBackground(for: colorScheme)
     }
 
+    private var sectionAnimation: Animation? {
+        accessibilityReduceMotion ? nil : .snappy(duration: 0.18)
+    }
+
     private func expansionBinding(for section: StudioInspectorSection) -> Binding<Bool> {
         Binding(
             get: { expandedSections.contains(section) },
-            set: { isExpanded in
-                if isExpanded {
-                    expandedSections.insert(section)
-                } else {
-                    expandedSections.remove(section)
-                }
-            }
+            set: { setExpanded(section, $0, animated: false) }
         )
     }
 
-    private func inspectorAction(
-        _ title: String,
-        systemImage: String,
-        role: ButtonRole? = nil,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(role: role, action: action) {
-            HStack(spacing: 6) {
-                Image(systemName: systemImage)
-                    .font(.system(size: 11, weight: .medium))
-                Text(title)
-                    .font(.inspectorValue)
-                    .lineLimit(1)
+    private func setExpanded(_ section: StudioInspectorSection, _ isExpanded: Bool, animated: Bool = true) {
+        withAnimation(animated ? sectionAnimation : nil) {
+            if isExpanded {
+                expandedSections.insert(section)
+            } else {
+                expandedSections.remove(section)
             }
-            .frame(maxWidth: .infinity)
-            .inspectorField(height: 28)
         }
-        .buttonStyle(.plain)
-        .foregroundStyle(role == .destructive ? Color.red.opacity(0.88) : Color.primary)
+        StudioInspectorSectionState.save(expandedSections)
+    }
+
+    /// Header switch for a section with an on/off state. Turning one on
+    /// opens its controls; turning it off folds them away.
+    private func sectionToggle(
+        _ title: String,
+        isOn: Binding<Bool>,
+        section: StudioInspectorSection
+    ) -> some View {
+        InspectorToggle(
+            title,
+            isOn: Binding(
+                get: { isOn.wrappedValue },
+                set: { value in
+                    isOn.wrappedValue = value
+                    setExpanded(section, value)
+                }
+            )
+        )
+    }
+}
+
+/// Collapsed-header readouts for the Studio inspector.
+private enum StudioInspectorSummary {
+    static func background(
+        _ style: AnnotationBackgroundStyle,
+        aspect: ExportAspectPreset
+    ) -> String? {
+        let fill: String?
+        switch style {
+        case .none:
+            fill = nil
+        case .solid(let color):
+            fill = color.title
+        case .gradient(let gradient):
+            fill = gradient.title
+        case .customWallpaper(let wallpaper):
+            fill = wallpaper.title
+        }
+        let ratio = aspect == .original ? nil : aspect.title
+        let parts = [fill, ratio].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    static func keystrokePlacement(_ placement: RecordingKeystrokePlacement) -> String {
+        switch placement {
+        case .topLeft: "Top left"
+        case .topCenter: "Top"
+        case .topRight: "Top right"
+        case .bottomLeft: "Bottom left"
+        case .bottomCenter: "Bottom"
+        case .bottomRight: "Bottom right"
+        }
+    }
+}
+
+/// Asks for the soundtrack format at export time.
+private struct StudioAudioExportOptions: View {
+    @Binding var format: RecordingAudioFormat
+    let onExport: () -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: InspectorMetrics.rowSpacing) {
+            Text("Export Audio")
+                .font(.inspectorSectionHeader)
+                .padding(.bottom, 2)
+
+            InspectorSegmented(
+                options: RecordingAudioFormat.allCases,
+                isSelected: { $0 == format },
+                onTap: { format = $0 },
+                label: { Text($0.title).font(.inspectorSegment) }
+            )
+
+            InspectorHint(
+                format == .m4a
+                    ? "Compact AAC audio, accepted by most enhancement tools."
+                    : "Uncompressed, for tools that accept nothing else."
+            )
+
+            HStack(spacing: 8) {
+                Spacer(minLength: 0)
+
+                Button("Cancel") {
+                    dismiss()
+                }
+                .keyboardShortcut(.cancelAction)
+
+                Button("Export", action: onExport)
+                    .keyboardShortcut(.defaultAction)
+                    .buttonStyle(.borderedProminent)
+            }
+            .controlSize(.small)
+            .padding(.top, 4)
+        }
+        .padding(InspectorMetrics.horizontalPadding)
+        .frame(width: 240)
+        .presentationBackground(InspectorControlPalette.panelBackground(for: colorScheme))
     }
 }
