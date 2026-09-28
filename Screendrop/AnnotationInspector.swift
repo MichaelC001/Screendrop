@@ -34,10 +34,6 @@ private enum AnnotationInspectorSectionState {
 }
 
 struct AnnotationEditorInspector: View {
-    private static let minimumColumnWidth: CGFloat = 260
-    private static let idealColumnWidth: CGFloat = 280
-    private static let maximumColumnWidth: CGFloat = 440
-
     @Bindable var model: AnnotationEditorModel
     @Bindable var wallpaperStore: AnnotationWallpaperStore
     @Bindable var backgroundPresetStore: AnnotationBackgroundPresetStore
@@ -225,12 +221,12 @@ struct AnnotationEditorInspector: View {
         .scrollEdgeEffectSoftIfAvailable()
         .background(sidebarBackground)
         .inspectorColumnWidth(
-            min: Self.minimumColumnWidth,
-            ideal: Self.idealColumnWidth,
-            max: Self.maximumColumnWidth
+            min: InspectorMetrics.columnMinWidth,
+            ideal: InspectorMetrics.columnIdealWidth,
+            max: InspectorMetrics.columnMaxWidth
         )
         .frame(
-            minWidth: Self.minimumColumnWidth,
+            minWidth: InspectorMetrics.columnMinWidth,
             maxWidth: .infinity,
             maxHeight: .infinity,
             alignment: .topLeading
@@ -312,25 +308,25 @@ struct AnnotationEditorInspector: View {
         VStack(alignment: .leading, spacing: 6) {
             InspectorRow("Redact") {
                 HStack(spacing: 6) {
-                    SmartRedactionButton(
-                        title: "Pixelate",
+                    InspectorActionButton(
+                        "Pixelate",
                         systemImage: "app.background.dotted",
-                        help: "Find sensitive content and pixelate it",
-                        isRunning: model.isSmartRedacting
+                        isBusy: model.isSmartRedacting
                     ) {
                         onEditorAction()
                         model.smartRedact(using: .pixelate)
                     }
+                    .help("Find sensitive content and pixelate it")
 
-                    SmartRedactionButton(
-                        title: "Blur",
+                    InspectorActionButton(
+                        "Blur",
                         systemImage: "drop.fill",
-                        help: "Find sensitive content and blur it",
-                        isRunning: model.isSmartRedacting
+                        isBusy: model.isSmartRedacting
                     ) {
                         onEditorAction()
                         model.smartRedact(using: .blur)
                     }
+                    .help("Find sensitive content and blur it")
                 }
             }
 
@@ -462,43 +458,6 @@ private enum AnnotationInspectorSummary {
         let text = settings.text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard settings.isEnabled, !text.isEmpty else { return nil }
         return "“\(text)”"
-    }
-}
-
-// MARK: - Smart redaction
-
-private struct SmartRedactionButton: View {
-    let title: String
-    let systemImage: String
-    let help: String
-    let isRunning: Bool
-    let action: () -> Void
-
-    @State private var isHovering = false
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 6) {
-                Image(systemName: systemImage)
-                    .font(.system(size: 11, weight: .medium))
-                Text(title)
-                    .font(.inspectorValue)
-            }
-            .foregroundStyle(.primary.opacity(0.85))
-            .frame(maxWidth: .infinity)
-            .inspectorField()
-            .overlay {
-                if isHovering && !isRunning {
-                    RoundedRectangle(cornerRadius: InspectorMetrics.fieldRadius, style: .continuous)
-                        .fill(Color.primary.opacity(0.04))
-                }
-            }
-        }
-        .buttonStyle(.plain)
-        .disabled(isRunning)
-        .opacity(isRunning ? 0.5 : 1)
-        .onHover { isHovering = $0 }
-        .help(help)
     }
 }
 

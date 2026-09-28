@@ -26,35 +26,16 @@ struct AnnotationBackgroundInspector: View {
     let onEditorAction: () -> Void
     let onPickWallpaper: () -> Void
 
-    private let swatchColumns = Array(repeating: GridItem(.flexible(), spacing: 6), count: 8)
-    private static let maxVisibleRecentWallpapers = 4
-    private let recentWallpaperColumns = Array(repeating: GridItem(.flexible(), spacing: 6), count: 5)
-    private let wallpaperColumns = Array(repeating: GridItem(.flexible(), spacing: 7), count: 3)
-    @State private var selectedWallpaperSourceID = AnnotationWallpaperSource.recentID
-    @State private var selectedFillLibrary = AnnotationBackgroundFillLibrary.color
-
     var body: some View {
         VStack(alignment: .leading, spacing: InspectorMetrics.groupSpacing) {
-            VStack(alignment: .leading, spacing: InspectorMetrics.groupLabelSpacing) {
-                InspectorGroupLabel("Fill library")
-
-                InspectorSegmented(
-                    options: AnnotationBackgroundFillLibrary.allCases,
-                    isSelected: { $0 == selectedFillLibrary },
-                    onTap: { library in
-                        withAnimation(.snappy(duration: 0.16)) {
-                            selectedFillLibrary = library
-                        }
-                    },
-                    label: { library in
-                        Text(library.title)
-                            .font(.inspectorSegment)
-                    }
-                )
-            }
-
-            selectedFillPicker
-                .transition(.opacity)
+            InspectorBackgroundFillPicker(
+                style: $settings.style,
+                rememberedWallpaper: settings.customWallpaper,
+                wallpaperStore: wallpaperStore,
+                onEditorAction: onEditorAction,
+                onPickWallpaper: onPickWallpaper,
+                onSelectWallpaper: { settings.customWallpaper = $0 }
+            )
 
             innerDivider
 
@@ -133,12 +114,6 @@ struct AnnotationBackgroundInspector: View {
                 )
             }
         }
-        .onAppear {
-            syncFillLibrary(with: settings.style)
-        }
-        .onChange(of: settings.style) { _, style in
-            syncFillLibrary(with: style)
-        }
     }
 
     private var innerDivider: some View {
@@ -147,9 +122,60 @@ struct AnnotationBackgroundInspector: View {
             .frame(height: 0.5)
             .padding(.vertical, 2)
     }
+}
+
+/// The background fill browser shared by the annotator and Studio: a
+/// Color / Gradient / Wallpaper library switch over tile grids, with recent
+/// wallpapers, built-in packs and an add tile.
+struct InspectorBackgroundFillPicker: View {
+    @Binding var style: AnnotationBackgroundStyle
+    /// A wallpaper to keep visible in Recent even when the fill is currently
+    /// a color or gradient.
+    let rememberedWallpaper: AnnotationCustomWallpaper?
+    @Bindable var wallpaperStore: AnnotationWallpaperStore
+    let onEditorAction: () -> Void
+    let onPickWallpaper: () -> Void
+    var onSelectWallpaper: (AnnotationCustomWallpaper) -> Void = { _ in }
+
+    private let swatchColumns = Array(repeating: GridItem(.flexible(), spacing: 6), count: 8)
+    private static let maxVisibleRecentWallpapers = 4
+    private let recentWallpaperColumns = Array(repeating: GridItem(.flexible(), spacing: 6), count: 5)
+    private let wallpaperColumns = Array(repeating: GridItem(.flexible(), spacing: 7), count: 3)
+    @State private var selectedWallpaperSourceID = AnnotationWallpaperSource.recentID
+    @State private var selectedFillLibrary = AnnotationBackgroundFillLibrary.color
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: InspectorMetrics.rowSpacing) {
+            InspectorSegmented(
+                options: AnnotationBackgroundFillLibrary.allCases,
+                isSelected: { $0 == selectedFillLibrary },
+                onTap: { library in
+                    withAnimation(.snappy(duration: 0.16)) {
+                        selectedFillLibrary = library
+                    }
+                },
+                label: { library in
+                    Text(library.title)
+                        .font(.inspectorSegment)
+                }
+            )
+
+            selectedFillPicker
+                .transition(.opacity)
+        }
+        .onAppear {
+            syncFillLibrary(with: style)
+        }
+        .onChange(of: style) { _, style in
+            syncFillLibrary(with: style)
+        }
+    }
 
     private var customWallpaper: AnnotationCustomWallpaper? {
-        settings.customWallpaper
+        if case .customWallpaper(let wallpaper) = style {
+            return wallpaper
+        }
+        return rememberedWallpaper
     }
 
     @ViewBuilder
@@ -158,22 +184,22 @@ struct AnnotationBackgroundInspector: View {
         case .color:
             LazyVGrid(columns: swatchColumns, spacing: 6) {
                 ForEach(AnnotationBackgroundColor.plainPresets) { color in
-                    InspectorTile(title: color.title, isSelected: settings.style == .solid(color)) {
+                    InspectorTile(title: color.title, isSelected: style == .solid(color)) {
                         onEditorAction()
-                        settings.style = .solid(color)
+                        style = .solid(color)
                     } content: {
                         Rectangle().fill(color.color)
                     }
                 }
-                InspectorCustomBackgroundColorTile(style: $settings.style, onSelect: onEditorAction)
+                InspectorCustomBackgroundColorTile(style: $style, onSelect: onEditorAction)
             }
 
         case .gradient:
             LazyVGrid(columns: swatchColumns, spacing: 6) {
                 ForEach(AnnotationBackgroundGradient.presets) { gradient in
-                    InspectorTile(title: gradient.title, isSelected: settings.style == .gradient(gradient)) {
+                    InspectorTile(title: gradient.title, isSelected: style == .gradient(gradient)) {
                         onEditorAction()
-                        settings.style = .gradient(gradient)
+                        style = .gradient(gradient)
                     } content: {
                         Rectangle().fill(LinearGradient(
                             colors: gradient.colors.map(\.color),
@@ -313,12 +339,12 @@ struct AnnotationBackgroundInspector: View {
     private func selectWallpaper(_ wallpaper: AnnotationCustomWallpaper) {
         onEditorAction()
         wallpaperStore.addRecentWallpaper(wallpaper.url)
-        settings.customWallpaper = wallpaper
-        settings.style = .customWallpaper(wallpaper)
+        onSelectWallpaper(wallpaper)
+        style = .customWallpaper(wallpaper)
     }
 
     private func isSelectedWallpaper(_ wallpaper: AnnotationCustomWallpaper) -> Bool {
-        guard case .customWallpaper(let selectedWallpaper) = settings.style else { return false }
+        guard case .customWallpaper(let selectedWallpaper) = style else { return false }
         return selectedWallpaper.url.standardizedFileURL == wallpaper.url.standardizedFileURL
     }
 

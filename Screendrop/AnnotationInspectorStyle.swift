@@ -44,6 +44,13 @@ enum InspectorMetrics {
 
     /// Fixed width for left-aligned row labels so values line up.
     static let labelColumnWidth: CGFloat = 58
+    /// Radius for inset list surfaces (subtitle list, transcript).
+    static let listRadius: CGFloat = 8
+
+    /// Inspector column widths shared by every editor.
+    static let columnMinWidth: CGFloat = 260
+    static let columnIdealWidth: CGFloat = 280
+    static let columnMaxWidth: CGFloat = 440
 }
 
 enum InspectorControlPalette {
@@ -353,6 +360,101 @@ struct InspectorToggle: View {
             return isHovering && isEnabled ? Color.accentColor.opacity(0.88) : Color.accentColor
         }
         return Color.primary.opacity(isHovering && isEnabled ? 0.2 : 0.14)
+    }
+}
+
+/// A labelled on/off row inside a section body.
+struct InspectorToggleRow: View {
+    let title: String
+    @Binding var isOn: Bool
+
+    init(_ title: String, isOn: Binding<Bool>) {
+        self.title = title
+        self._isOn = isOn
+    }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text(title)
+                .font(.inspectorLabel)
+                .foregroundStyle(.primary.opacity(0.82))
+
+            Spacer(minLength: 8)
+
+            InspectorToggle(title, isOn: $isOn)
+        }
+        .frame(minHeight: InspectorMetrics.controlHeight)
+    }
+}
+
+/// A full-width field-styled action: symbol plus title at the standard
+/// control height. Destructive actions tint red; `isBusy` dims and blocks it.
+struct InspectorActionButton: View {
+    let title: String
+    let systemImage: String
+    var role: ButtonRole? = nil
+    var isBusy = false
+    let action: () -> Void
+
+    @Environment(\.isEnabled) private var isEnabled
+    @State private var isHovering = false
+
+    init(
+        _ title: String,
+        systemImage: String,
+        role: ButtonRole? = nil,
+        isBusy: Bool = false,
+        action: @escaping () -> Void
+    ) {
+        self.title = title
+        self.systemImage = systemImage
+        self.role = role
+        self.isBusy = isBusy
+        self.action = action
+    }
+
+    var body: some View {
+        Button(role: role, action: action) {
+            HStack(spacing: 6) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 11, weight: .medium))
+                Text(title)
+                    .font(.inspectorValue)
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity)
+            .inspectorField()
+            .overlay {
+                if isHovering && isEnabled && !isBusy {
+                    RoundedRectangle(cornerRadius: InspectorMetrics.fieldRadius, style: .continuous)
+                        .fill(InspectorControlPalette.hoverFill)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(role == .destructive ? Color.red.opacity(0.88) : Color.primary.opacity(0.85))
+        .disabled(isBusy)
+        .opacity(isEnabled && !isBusy ? 1 : 0.5)
+        .onHover { isHovering = $0 }
+    }
+}
+
+/// Muted explanatory copy inside a section. Reserved for empty states and
+/// errors; routine guidance belongs in tooltips.
+struct InspectorHint: View {
+    let text: String
+    var tint: Color? = nil
+
+    init(_ text: String, tint: Color? = nil) {
+        self.text = text
+        self.tint = tint
+    }
+
+    var body: some View {
+        Text(text)
+            .font(.inspectorLabel)
+            .foregroundStyle(tint.map(AnyShapeStyle.init) ?? AnyShapeStyle(.secondary))
+            .fixedSize(horizontal: false, vertical: true)
     }
 }
 
