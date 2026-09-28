@@ -305,17 +305,98 @@ nonisolated enum TypingSoundTrackRenderer {
     }
 
     /// Maps source-timeline keypresses onto the edited timeline, dropping
-    /// the ones whose footage was cut.
+    /// the ones whose footage was cut. Clips at normal speed keep every
+    /// keypress where it happened. A sped-up clip would squeeze the real
+    /// presses into an inhuman rattle, so wherever its typing is denser
+    /// than a person can type, that stretch gets a natural typing rhythm
+    /// instead - still starting and stopping with the typing on screen.
     static func editorEvents(
         from events: [RecordingTypingEvent],
         clipTimeline: RecordingClipTimeline
     ) -> [RecordingTypingEvent] {
-        events.compactMap { event in
-            clipTimeline.editorTime(forSourceTime: event.time).map {
-                RecordingTypingEvent(time: $0, kind: event.kind)
+        let sorted = events.sorted { $0.time < $1.time }
+        var result: [RecordingTypingEvent] = []
+        var editorStart: TimeInterval = 0
+        for (clipIndex, clip) in clipTimeline.segments.enumerated() {
+            let isLast = clipIndex == clipTimeline.segments.count - 1
+            let speed = max(clip.speed, RecordingClipSegment.minimumSpeed)
+            let mapped = sorted
+                .filter { event in
+                    event.time >= clip.sourceStart - 0.000_001
+                        && (isLast ? event.time <= clip.sourceEnd + 0.000_001 : event.time < clip.sourceEnd)
+                }
+                .map { event in
+                    RecordingTypingEvent(
+                        time: editorStart + min(max(event.time - clip.sourceStart, 0), clip.duration) / speed,
+                        kind: event.kind
+                    )
+                }
+
+            if speed > 1.001 {
+                var random = SeededRandom(seed: UInt64(clipIndex + 1) &* 0xA24B_AED4_963E_E407)
+                result += naturalTyping(replacing: mapped, random: &random)
+            } else {
+                result += mapped
+            }
+            editorStart += clip.editorDuration
+        }
+        return result.sorted { $0.time < $1.time }
+    }
+
+    /// Fastest believable sustained typing, in keypresses per second.
+    private static let naturalKeysPerSecond: Double = 8
+    /// Compressed keypresses closer than this belong to the same burst of
+    /// typing; a longer gap is a pause that stays silent.
+    private static let burstGap: TimeInterval = 0.35
+
+    /// Splits compressed keypresses into bursts and re-voices each burst
+    /// that is too dense to be human as words at a natural pace, spanning
+    /// the same stretch of the timeline.
+    private static func naturalTyping(
+        replacing events: [RecordingTypingEvent],
+        random: inout SeededRandom
+    ) -> [RecordingTypingEvent] {
+        var bursts: [[RecordingTypingEvent]] = []
+        for event in events {
+            if let last = bursts.last?.last, event.time - last.time <= burstGap {
+                bursts[bursts.count - 1].append(event)
+            } else {
+                bursts.append([event])
             }
         }
-        .sorted { $0.time < $1.time }
+
+        var result: [RecordingTypingEvent] = []
+        for burst in bursts {
+            guard let first = burst.first, let last = burst.last else { continue }
+            let span = last.time - first.time
+            // Already a human pace (a few presses, or a gentle speed-up).
+            if Double(burst.count) <= max(1, span * naturalKeysPerSecond) + 1 {
+                result += burst
+                continue
+            }
+
+            var time = first.time
+            var simulated: [RecordingTypingEvent] = []
+            while time <= last.time {
+                let letters = Int(random.next(in: 2...7.99))
+                for _ in 0..<letters where time <= last.time {
+                    simulated.append(RecordingTypingEvent(time: time, kind: .key))
+                    time += random.next(in: 0.085...0.16)
+                }
+                guard time <= last.time else { break }
+                simulated.append(RecordingTypingEvent(time: time, kind: .space))
+                time += random.next(in: 0.13...0.24)
+            }
+            // A burst that ended by pressing Return still ends on Return.
+            if last.kind == .returnKey {
+                if let final = simulated.last, last.time - final.time < 0.08 {
+                    simulated.removeLast()
+                }
+                simulated.append(last)
+            }
+            result += simulated
+        }
+        return result
     }
 
     /// Writes a stereo Apple Lossless track exactly `duration` long with a
