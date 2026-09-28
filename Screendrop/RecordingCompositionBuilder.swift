@@ -99,4 +99,42 @@ nonisolated enum RecordingCompositionBuilder {
         }
         return composition
     }
+
+    /// Lays the rendered typing-sound track from zero over `asset`, which is
+    /// already on the edited timeline. Returns the new asset and the added
+    /// track's ID so gain for the recording's own audio can leave it alone.
+    static func addingTypingTrack(
+        _ typingTrack: AVAssetTrack,
+        duration typingDuration: TimeInterval,
+        to asset: AVAsset,
+        editorDuration: TimeInterval
+    ) throws -> (asset: AVAsset, typingTrackID: CMPersistentTrackID) {
+        let composition: AVMutableComposition
+        if let existing = asset as? AVMutableComposition {
+            composition = existing
+        } else {
+            composition = AVMutableComposition()
+            try composition.insertTimeRange(
+                CMTimeRange(start: .zero, duration: CMTime(seconds: editorDuration, preferredTimescale: 600)),
+                of: asset,
+                at: .zero
+            )
+        }
+
+        guard let audio = composition.addMutableTrack(
+            withMediaType: .audio,
+            preferredTrackID: kCMPersistentTrackID_Invalid
+        ) else {
+            return (composition, kCMPersistentTrackID_Invalid)
+        }
+        let length = min(typingDuration, editorDuration)
+        if length > 0 {
+            try audio.insertTimeRange(
+                CMTimeRange(start: .zero, duration: CMTime(seconds: length, preferredTimescale: 48_000)),
+                of: typingTrack,
+                at: .zero
+            )
+        }
+        return (composition, audio.trackID)
+    }
 }

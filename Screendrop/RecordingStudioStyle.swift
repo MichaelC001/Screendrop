@@ -63,6 +63,9 @@ struct RecordingEditDocument: Codable, Equatable {
     /// Raw RecordingAudioFormat value for the audio-only export.
     var audioExportFormat: String?
     var audioVolume: Double?
+    /// Synthesized keyboard sounds under captured typing; nil for projects
+    /// saved before typing sounds, which inherit the last-used defaults.
+    var typingSounds: TypingSoundSettings?
 
     private enum CodingKeys: String, CodingKey {
         case formatVersion
@@ -92,6 +95,7 @@ struct RecordingEditDocument: Codable, Equatable {
         case replacementAudioDisplayName
         case audioExportFormat
         case audioVolume
+        case typingSounds
     }
 
     init(
@@ -114,7 +118,8 @@ struct RecordingEditDocument: Codable, Equatable {
         replacementAudioFileName: String? = nil,
         replacementAudioDisplayName: String? = nil,
         audioExportFormat: RecordingAudioFormat? = nil,
-        audioVolume: Double? = nil
+        audioVolume: Double? = nil,
+        typingSounds: TypingSoundSettings? = nil
     ) {
         self.style = StoredRecordingStudioStyle(style)
         self.zoomEnabled = zoomEnabled
@@ -145,6 +150,7 @@ struct RecordingEditDocument: Codable, Equatable {
         self.replacementAudioDisplayName = replacementAudioDisplayName
         self.audioExportFormat = audioExportFormat.map(\.rawValue)
         self.audioVolume = audioVolume
+        self.typingSounds = typingSounds
     }
 
     var audioExportFormatValue: RecordingAudioFormat {
@@ -230,6 +236,7 @@ struct RecordingEditDocument: Codable, Equatable {
         )
         audioExportFormat = try container.decodeIfPresent(String.self, forKey: .audioExportFormat)
         audioVolume = try container.decodeIfPresent(Double.self, forKey: .audioVolume)
+        typingSounds = try container.decodeIfPresent(TypingSoundSettings.self, forKey: .typingSounds)
     }
 
     func encode(to encoder: any Encoder) throws {
@@ -261,6 +268,7 @@ struct RecordingEditDocument: Codable, Equatable {
         )
         try container.encodeIfPresent(audioExportFormat, forKey: .audioExportFormat)
         try container.encodeIfPresent(audioVolume, forKey: .audioVolume)
+        try container.encodeIfPresent(typingSounds, forKey: .typingSounds)
     }
 }
 

@@ -2777,6 +2777,7 @@ private enum StudioInspectorSection: String, Hashable, CaseIterable {
     case motion
     case cursor
     case keystrokes
+    case typingSounds
     case transcription
     case camera
     case audio
@@ -2947,6 +2948,25 @@ private struct StudioInspector: View {
                         }
                     ) {
                         keystrokeControls
+                    }
+                }
+
+                if model.hasTypingEvents {
+                    InspectorDisclosureSection(
+                        title: "Typing Sounds",
+                        summary: model.typingSounds.isEnabled
+                            ? "\(model.typingSounds.profile.title) · \(InspectorValueFormat.percent().displayString(for: CGFloat(model.typingSounds.clampedVolume)))"
+                            : nil,
+                        isExpanded: expansionBinding(for: .typingSounds),
+                        accessory: {
+                            sectionToggle(
+                                "Play typing sounds",
+                                isOn: typingSoundsBinding(\.isEnabled),
+                                section: .typingSounds
+                            )
+                        }
+                    ) {
+                        typingSoundControls
                     }
                 }
 
@@ -3346,6 +3366,57 @@ private struct StudioInspector: View {
             isSelected: { $0 == model.keystrokePlacement },
             onTap: { model.keystrokePlacement = $0 },
             label: { Text($0.title).font(.inspectorSegment) }
+        )
+    }
+
+    // MARK: Typing sounds
+
+    private var typingSoundControls: some View {
+        VStack(alignment: .leading, spacing: InspectorMetrics.rowSpacing) {
+            InspectorSegmented(
+                options: TypingSoundProfile.allCases,
+                isSelected: { $0 == model.typingSounds.profile },
+                onTap: { typingSoundsBinding(\.profile).wrappedValue = $0 },
+                label: { profile in
+                    Label(profile.title, systemImage: profile.systemImage)
+                        .labelStyle(.titleAndIcon)
+                        .font(.inspectorSegment)
+                }
+            )
+
+            InspectorFieldPair {
+                InspectorSlider(
+                    "Volume",
+                    value: Binding(
+                        get: { CGFloat(model.typingSounds.clampedVolume) },
+                        set: { typingSoundsBinding(\.volume).wrappedValue = Double($0) }
+                    ),
+                    range: CGFloat(TypingSoundSettings.volumeRange.lowerBound)...CGFloat(TypingSoundSettings.volumeRange.upperBound),
+                    format: .percent()
+                )
+            } trailing: {
+                InspectorActionButton("Preview", systemImage: "speaker.wave.2") {
+                    model.auditionTypingSound()
+                }
+                .help("Play a few seconds of typing in this sound")
+            }
+        }
+        .help("Synthesized key sounds play wherever you typed while recording")
+        .disabled(!model.typingSounds.isEnabled)
+        .opacity(model.typingSounds.isEnabled ? 1 : 0.48)
+    }
+
+    /// Edits one typing-sound setting and remembers the result as the
+    /// default for recordings that haven't chosen their own.
+    private func typingSoundsBinding<Value>(
+        _ keyPath: WritableKeyPath<TypingSoundSettings, Value>
+    ) -> Binding<Value> {
+        Binding(
+            get: { model.typingSounds[keyPath: keyPath] },
+            set: { value in
+                model.typingSounds[keyPath: keyPath] = value
+                TypingSoundDefaults.settings = model.typingSounds
+            }
         )
     }
 

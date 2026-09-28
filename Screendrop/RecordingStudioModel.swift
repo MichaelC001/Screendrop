@@ -193,9 +193,140 @@ final class RecordingStudioModel {
 
     private func updatePlaybackVolume() {
         guard let item = screenPlayer.currentItem else { return }
-        item.audioMix = RecordingAudioGain.makeMix(
-            tracks: item.asset.tracks(withMediaType: .audio), volume: Double(audioVolume)
+        // The typing track carries its own level; project gain is for the
+        // recording's soundtrack.
+        let soundtrack = item.asset.tracks(withMediaType: .audio)
+            .filter { $0.trackID != typingTrackID }
+        item.audioMix = RecordingAudioGain.makeMix(tracks: soundtrack, volume: Double(audioVolume))
+    }
+
+    // MARK: Typing sounds
+
+    /// Synthesized keyboard sounds under the captured typing.
+    var typingSounds = TypingSoundDefaults.settings {
+        didSet {
+            guard typingSounds != oldValue else { return }
+            scheduleProjectSave()
+            refreshTypingTrack()
+        }
+    }
+
+    /// Recordings made before typing sounds existed carry no keypresses.
+    var hasTypingEvents: Bool {
+        !pointerCapture.typing.isEmpty
+    }
+
+    /// What the rendered preview track was built from; a mismatch means the
+    /// settings or the cut changed and it has to be rendered again.
+    private struct TypingTrackKey: Equatable {
+        let settings: TypingSoundSettings
+        let clipTimeline: RecordingClipTimeline
+        let duration: TimeInterval
+    }
+
+    private struct RenderedTypingTrack {
+        /// Held because a track doesn't keep its asset alive, and a
+        /// composition can't insert from a track whose asset is gone.
+        let asset: AVURLAsset
+        let track: AVAssetTrack
+        let url: URL
+        let key: TypingTrackKey
+    }
+
+    private var typingTrack: RenderedTypingTrack?
+    private var typingTrackID: CMPersistentTrackID?
+    private var typingTrackTask: Task<Void, Never>?
+    private var typingAuditionPlayer: AVAudioPlayer?
+    private var typingAuditionTask: Task<Void, Never>?
+
+    private var currentTypingTrackKey: TypingTrackKey? {
+        guard typingSounds.isEnabled, hasTypingEvents, duration > 0 else { return nil }
+        return TypingTrackKey(settings: typingSounds, clipTimeline: clipTimeline, duration: duration)
+    }
+
+    /// Re-renders the preview's typing track when the settings or the cut
+    /// changed, then swaps it into the player. Debounced so dragging the
+    /// volume doesn't render on every tick.
+    private func refreshTypingTrack() {
+        guard isLoaded else { return }
+        guard let key = currentTypingTrackKey else {
+            typingTrackTask?.cancel()
+            typingTrackTask = nil
+            if let typingTrack {
+                try? FileManager.default.removeItem(at: typingTrack.url)
+                self.typingTrack = nil
+                rebuildPlayerKeepingPlayback()
+            }
+            return
+        }
+        guard typingTrack?.key != key else { return }
+
+        typingTrackTask?.cancel()
+        let events = TypingSoundTrackRenderer.editorEvents(
+            from: pointerCapture.typing,
+            clipTimeline: clipTimeline
         )
+        let url = TypingSoundTrackRenderer.temporaryURL(named: "preview-\(UUID().uuidString)")
+        typingTrackTask = Task { [weak self] in
+            do {
+                try await Task.sleep(for: .milliseconds(160))
+                try await TypingSoundTrackRenderer.render(
+                    events: events,
+                    duration: key.duration,
+                    settings: key.settings,
+                    to: url
+                )
+                let asset = AVURLAsset(url: url)
+                guard let track = try await asset.loadTracks(withMediaType: .audio).first else {
+                    return
+                }
+                guard let self, !Task.isCancelled, !self.isTornDown,
+                      self.currentTypingTrackKey == key else {
+                    try? FileManager.default.removeItem(at: url)
+                    return
+                }
+                if let previous = self.typingTrack {
+                    try? FileManager.default.removeItem(at: previous.url)
+                }
+                self.typingTrack = RenderedTypingTrack(asset: asset, track: track, url: url, key: key)
+                self.rebuildPlayerKeepingPlayback()
+            } catch {
+                try? FileManager.default.removeItem(at: url)
+            }
+        }
+    }
+
+    /// Swaps in a rebuilt player item without losing the playhead or
+    /// interrupting playback.
+    private func rebuildPlayerKeepingPlayback() {
+        let wasPlaying = isPlaying
+        let time = displayTime
+        if wasPlaying { pause() }
+        try? rebuildScreenPlayerItem(preserving: time)
+        if wasPlaying { play() }
+    }
+
+    /// Plays a short burst of typing in the chosen sound.
+    func auditionTypingSound() {
+        typingAuditionTask?.cancel()
+        typingAuditionPlayer?.stop()
+        var settings = typingSounds
+        settings.isEnabled = true
+        let url = TypingSoundTrackRenderer.temporaryURL(named: "audition-\(settings.profile.rawValue)")
+        typingAuditionTask = Task { [weak self] in
+            do {
+                try await TypingSoundTrackRenderer.render(
+                    events: TypingSoundTrackRenderer.auditionEvents,
+                    duration: TypingSoundTrackRenderer.auditionDuration,
+                    settings: settings,
+                    to: url
+                )
+                guard let self, !Task.isCancelled else { return }
+                let player = try AVAudioPlayer(contentsOf: url)
+                self.typingAuditionPlayer = player
+                player.play()
+            } catch {}
+        }
     }
 
     /// Format the audio-only export writes.
@@ -401,6 +532,7 @@ final class RecordingStudioModel {
         isLoaded = true
         rebuildPreviewReframe()
         loadTimelineThumbnails()
+        refreshTypingTrack()
 
         if let session {
             if session.hasUnsavedDraft {
@@ -456,6 +588,7 @@ final class RecordingStudioModel {
         videoCropRect = document.normalizedVideoCropRect
         audioExportFormat = document.audioExportFormatValue
         audioVolume = CGFloat(RecordingAudioGain.normalized(document.audioVolume ?? 1))
+        typingSounds = document.typingSounds ?? TypingSoundDefaults.settings
     }
 
     func teardown() {
@@ -468,6 +601,15 @@ final class RecordingStudioModel {
         exportTask?.cancel()
         audioExportTask?.cancel()
         replacementAudioTask?.cancel()
+        typingTrackTask?.cancel()
+        typingAuditionTask?.cancel()
+        typingAuditionPlayer?.stop()
+        typingAuditionPlayer = nil
+        if let typingTrack {
+            try? FileManager.default.removeItem(at: typingTrack.url)
+        }
+        typingTrack = nil
+        typingTrackID = nil
         cancelShare()
         transcriptionTask?.cancel()
         projectSaveTask?.cancel()
@@ -823,13 +965,30 @@ final class RecordingStudioModel {
             )
         }
 
-        screenPlayer.replaceCurrentItem(with: AVPlayerItem(asset: playbackAsset))
+        var playerAsset = playbackAsset
+        typingTrackID = nil
+        if let typingTrack, typingTrack.key == currentTypingTrackKey {
+            let layered = try RecordingCompositionBuilder.addingTypingTrack(
+                typingTrack.track,
+                duration: typingTrack.key.duration,
+                to: playbackAsset,
+                editorDuration: duration
+            )
+            playerAsset = layered.asset
+            typingTrackID = layered.typingTrackID
+        }
+
+        screenPlayer.replaceCurrentItem(with: AVPlayerItem(asset: playerAsset))
         updatePlaybackVolume()
         screenPlayer.actionAtItemEnd = .pause
         currentTime = min(max(editorTime, 0), duration)
         movePlayers(to: currentTime)
         if timeObserver != nil {
             installEndObserver()
+        }
+        // A cut or speed change moves the keypresses; render them again.
+        if currentTypingTrackKey != typingTrack?.key {
+            refreshTypingTrack()
         }
     }
 
@@ -1170,7 +1329,8 @@ final class RecordingStudioModel {
             replacementAudioFileName: replacementAudio?.url.lastPathComponent,
             replacementAudioDisplayName: replacementAudio?.displayName,
             audioExportFormat: audioExportFormat,
-            audioVolume: Double(audioVolume)
+            audioVolume: Double(audioVolume),
+            typingSounds: typingSounds
         )
     }
 
@@ -1788,7 +1948,10 @@ final class RecordingStudioModel {
             audioVolume: Double(audioVolume),
             reframe: reframe,
             fitContentAspect: fitContentAspect,
-            usesUniformPadding: exportAspect == .original
+            usesUniformPadding: exportAspect == .original,
+            typingSounds: typingSounds.isEnabled && hasTypingEvents
+                ? .init(events: pointerCapture.typing, settings: typingSounds)
+                : nil
         )
     }
 
