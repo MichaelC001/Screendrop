@@ -2,10 +2,11 @@
 //  RecordingTypingSounds.swift
 //  Screendrop
 //
-//  Keyboard sounds laid under a recording's typing. The sounds are
-//  synthesized here rather than sampled - no third-party audio ships with
-//  the app - and rendered into a sound track on the edited timeline, which
-//  Studio layers into playback and the exporter mixes into the movie.
+//  Keyboard sounds laid under a recording's typing. Each keypress is voiced
+//  from a recorded mechanical keystroke embedded as code
+//  (TypingSoundSamples) and rendered into a sound track on the edited
+//  timeline, which Studio layers into playback and the exporter mixes into
+//  the movie.
 //
 //  Capture stores only *when* a key went down and a coarse class (letter,
 //  space, return, delete, modifier). Which key was pressed is never
@@ -104,10 +105,12 @@ nonisolated enum TypingSoundDefaults {
 
 // MARK: - Synthesis
 
-/// Procedural key sounds. Each hit is built from filtered noise bursts (the
-/// click and the plastic "slap") plus a few decaying partials (the keycap
-/// and plate ringing), with a small upstroke after it. Every kind gets a
-/// handful of seeded variants so fast typing never sounds like a loop.
+/// Builds key sounds from one recorded mechanical keystroke
+/// (`TypingSoundSamples`): the press at the keypress and the release a
+/// moment later. Each key class and variant gets its own pitch, level,
+/// release timing and stereo position so fast typing never sounds looped.
+/// The Apple profile reshapes the same recording into a shorter, brighter,
+/// softer low-travel tick.
 nonisolated enum TypingSoundSynthesizer {
     static let sampleRate: Double = 48_000
     static let variantsPerKind = 6
@@ -122,253 +125,152 @@ nonisolated enum TypingSoundSynthesizer {
     typealias Bank = [RecordingTypingKeyKind: [Hit]]
 
     static func bank(for profile: TypingSoundProfile) -> Bank {
+        // The recording is quiet; bring the press up to a healthy peak and
+        // scale the release by the same amount so their balance holds.
+        let peak = TypingSoundSamples.keyDown.reduce(Int32(1)) { max($0, abs(Int32($1))) }
+        let scale = 0.75 / Float(peak)
+        let down = TypingSoundSamples.keyDown.map { Float($0) * scale }
+        let up = TypingSoundSamples.keyUp.map { Float($0) * scale }
         let kinds: [RecordingTypingKeyKind] = [.key, .space, .returnKey, .delete, .modifier]
         var bank: Bank = [:]
         for (kindIndex, kind) in kinds.enumerated() {
             bank[kind] = (0..<variantsPerKind).map { variant in
                 var random = SeededRandom(seed: UInt64(kindIndex * 1_000 + variant + 1) &* 0x9E37_79B9_7F4A_7C15)
-                return hit(profile: profile, kind: kind, random: &random)
+                return hit(profile: profile, kind: kind, down: down, up: up, random: &random)
             }
         }
         return bank
     }
 
+    private struct Voicing {
+        var pitch: Double
+        var downGain: Float
+        var upGain: Float
+        var releaseDelay: TimeInterval
+        /// Removes body below this frequency; nil keeps the full sound.
+        var highPass: Double?
+        /// Cuts each sample off after this long, with a short fade.
+        var maximumLength: TimeInterval?
+    }
+
     private static func hit(
         profile: TypingSoundProfile,
         kind: RecordingTypingKeyKind,
+        down: [Float],
+        up: [Float],
         random: inout SeededRandom
     ) -> Hit {
-        let mono: [Float]
-        switch profile {
-        case .mechanical:
-            mono = mechanical(kind: kind, random: &random)
-        case .apple:
-            mono = apple(kind: kind, random: &random)
+        let voicing = voicing(profile: profile, kind: kind, random: &random)
+
+        let pressed = shaped(down, voicing: voicing)
+        let released = shaped(up, voicing: voicing)
+        let releaseStart = Int(voicing.releaseDelay * sampleRate)
+        var mono = [Float](repeating: 0, count: max(pressed.count, releaseStart + released.count))
+        for index in pressed.indices {
+            mono[index] += pressed[index] * voicing.downGain
+        }
+        for index in released.indices {
+            mono[releaseStart + index] += released[index] * voicing.upGain
         }
 
         // Keys sit slightly left or right of center; the space bar is wide
         // and central.
-        let pan = kind == .space ? 0 : random.next(in: -0.28...0.28)
+        let pan = kind == .space ? 0 : random.next(in: -0.25...0.25)
         let angle = (pan + 1) * .pi / 4
-        let leftGain = Float(cos(angle))
-        let rightGain = Float(sin(angle))
+        let leftGain = Float(cos(angle) * 2.squareRoot())
+        let rightGain = Float(sin(angle) * 2.squareRoot())
         return Hit(left: mono.map { $0 * leftGain }, right: mono.map { $0 * rightGain })
     }
 
-    // MARK: Mechanical
-
-    private static func mechanical(kind: RecordingTypingKeyKind, random: inout SeededRandom) -> [Float] {
-        let pitch = kindPitch(kind, mechanical: true) * random.next(in: 0.94...1.06)
-        let length = kind == .space ? 0.3 : 0.22
-        var voice = Voice(length: length)
-
-        // Downstroke: a bright, very short click as the stem snaps past the
-        // tactile bump...
-        voice.noiseBurst(
-            at: 0,
-            filter: .bandPass(frequency: 3_800 * pitch, q: 1.1),
-            decay: 0.0012,
-            amplitude: 0.85,
-            random: &random
-        )
-        // ...then the bottom-out: a woody slap and the case ringing.
-        let bottomOut = random.next(in: 0.0035...0.006)
-        voice.noiseBurst(
-            at: bottomOut,
-            filter: .lowPass(frequency: 1_500 * pitch, q: 0.8),
-            decay: 0.011,
-            amplitude: 1.0,
-            random: &random
-        )
-        voice.partial(at: bottomOut, frequency: 235 * pitch, decay: 0.02, amplitude: 0.55)
-        voice.partial(at: bottomOut, frequency: 610 * pitch, decay: 0.013, amplitude: 0.32)
-        voice.partial(at: bottomOut, frequency: 1_430 * pitch, decay: 0.007, amplitude: 0.18)
-
-        if kind == .space {
-            // Stabilizer rattle on the wide bar.
-            for offset in [0.011, 0.019] {
-                voice.noiseBurst(
-                    at: bottomOut + offset + random.next(in: 0...0.003),
-                    filter: .bandPass(frequency: 2_200, q: 2),
-                    decay: 0.0015,
-                    amplitude: 0.22,
-                    random: &random
-                )
-            }
-        }
-
-        // Upstroke as the key returns.
-        let release = random.next(in: 0.075...0.105) * (kind == .space ? 1.25 : 1)
-        voice.noiseBurst(
-            at: release,
-            filter: .bandPass(frequency: 2_600 * pitch, q: 1.3),
-            decay: 0.0022,
-            amplitude: 0.34,
-            random: &random
-        )
-        voice.partial(at: release, frequency: 420 * pitch, decay: 0.009, amplitude: 0.16)
-
-        return voice.normalized(peak: kindGain(kind) * Float(random.next(in: 0.88...1.0)))
-    }
-
-    // MARK: Apple (scissor switch)
-
-    private static func apple(kind: RecordingTypingKeyKind, random: inout SeededRandom) -> [Float] {
-        let pitch = kindPitch(kind, mechanical: false) * random.next(in: 0.95...1.05)
-        let length = kind == .space ? 0.16 : 0.12
-        var voice = Voice(length: length)
-
-        // A soft, papery tick with almost no travel...
-        voice.noiseBurst(
-            at: 0,
-            filter: .bandPass(frequency: 5_200 * pitch, q: 0.9),
-            decay: 0.0009,
-            amplitude: 0.7,
-            random: &random
-        )
-        // ...a short plastic body and a thin aluminium ring.
-        let body = random.next(in: 0.0012...0.002)
-        voice.noiseBurst(
-            at: body,
-            filter: .lowPass(frequency: 3_000 * pitch, q: 0.7),
-            decay: 0.0042,
-            amplitude: 0.55,
-            random: &random
-        )
-        voice.partial(at: body, frequency: 1_750 * pitch, decay: 0.005, amplitude: 0.26)
-        voice.partial(at: body, frequency: 3_300 * pitch, decay: 0.003, amplitude: 0.12)
-        if kind == .space {
-            voice.partial(at: body, frequency: 520, decay: 0.011, amplitude: 0.24)
-        }
-
-        let release = random.next(in: 0.045...0.065)
-        voice.noiseBurst(
-            at: release,
-            filter: .bandPass(frequency: 4_100 * pitch, q: 1),
-            decay: 0.0008,
-            amplitude: 0.16,
-            random: &random
-        )
-
-        return voice.normalized(peak: 0.72 * kindGain(kind) * Float(random.next(in: 0.88...1.0)))
-    }
-
-    private static func kindPitch(_ kind: RecordingTypingKeyKind, mechanical: Bool) -> Double {
+    private static func voicing(
+        profile: TypingSoundProfile,
+        kind: RecordingTypingKeyKind,
+        random: inout SeededRandom
+    ) -> Voicing {
+        // Bigger keys ring lower; modifiers are pressed lightly.
+        let kindPitch: Double
+        let kindGain: Float
         switch kind {
-        case .key: 1
-        case .space: mechanical ? 0.72 : 0.8
-        case .returnKey: 0.86
-        case .delete: 0.94
-        case .modifier: 1.08
+        case .key: kindPitch = 1; kindGain = 1
+        case .space: kindPitch = 0.84; kindGain = 1.1
+        case .returnKey: kindPitch = 0.9; kindGain = 1.05
+        case .delete: kindPitch = 0.95; kindGain = 1
+        case .modifier: kindPitch = 1.04; kindGain = 0.7
+        }
+        let level = kindGain * Float(random.next(in: 0.85...1.0))
+
+        switch profile {
+        case .mechanical:
+            return Voicing(
+                pitch: kindPitch * random.next(in: 0.95...1.05),
+                downGain: level,
+                upGain: level * Float(random.next(in: 0.75...0.95)),
+                releaseDelay: random.next(in: 0.07...0.11) * (kind == .space ? 1.2 : 1),
+                highPass: nil,
+                maximumLength: nil
+            )
+        case .apple:
+            return Voicing(
+                pitch: kindPitch * random.next(in: 1.28...1.38),
+                downGain: level * 0.62,
+                upGain: level * 0.22,
+                releaseDelay: random.next(in: 0.045...0.065),
+                highPass: 900,
+                maximumLength: 0.022
+            )
         }
     }
 
-    private static func kindGain(_ kind: RecordingTypingKeyKind) -> Float {
-        switch kind {
-        case .key: 0.8
-        case .space: 0.95
-        case .returnKey: 0.92
-        case .delete: 0.84
-        case .modifier: 0.55
+    /// Resamples to the output rate at the voicing's pitch (linear
+    /// interpolation is plenty for clicks this short), then applies the
+    /// optional high-pass and length cap.
+    private static func shaped(_ source: [Float], voicing: Voicing) -> [Float] {
+        let step = TypingSoundSamples.sampleRate / sampleRate * voicing.pitch
+        var length = Int(Double(source.count - 1) / step)
+        if let maximumLength = voicing.maximumLength {
+            length = min(length, Int(maximumLength * sampleRate))
         }
+        guard length > 0 else { return [] }
+
+        var output = [Float](repeating: 0, count: length)
+        for index in 0..<length {
+            let position = Double(index) * step
+            let lower = Int(position)
+            let fraction = Float(position - Double(lower))
+            let next = min(lower + 1, source.count - 1)
+            output[index] = source[lower] + (source[next] - source[lower]) * fraction
+        }
+
+        if let cutoff = voicing.highPass {
+            var filter = OnePoleHighPass(cutoff: cutoff, sampleRate: sampleRate)
+            for index in output.indices {
+                output[index] = filter.process(output[index])
+            }
+        }
+        if voicing.maximumLength != nil {
+            let fade = min(length, Int(0.004 * sampleRate))
+            for offset in 0..<fade {
+                output[length - fade + offset] *= Float(fade - offset) / Float(fade)
+            }
+        }
+        return output
     }
 
-    // MARK: Building blocks
+    private struct OnePoleHighPass {
+        private let coefficient: Float
+        private var previousInput: Float = 0
+        private var previousOutput: Float = 0
 
-    private struct Voice {
-        var samples: [Float]
-
-        init(length: TimeInterval) {
-            samples = [Float](repeating: 0, count: Int(length * TypingSoundSynthesizer.sampleRate))
+        init(cutoff: Double, sampleRate: Double) {
+            let rc = 1 / (2 * Double.pi * cutoff)
+            coefficient = Float(rc / (rc + 1 / sampleRate))
         }
 
-        mutating func noiseBurst(
-            at start: TimeInterval,
-            filter: Biquad.Kind,
-            decay: TimeInterval,
-            amplitude: Double,
-            random: inout SeededRandom
-        ) {
-            var biquad = Biquad(kind: filter, sampleRate: TypingSoundSynthesizer.sampleRate)
-            let startFrame = Int(start * TypingSoundSynthesizer.sampleRate)
-            let frames = min(samples.count - startFrame, Int(decay * 8 * TypingSoundSynthesizer.sampleRate))
-            guard startFrame >= 0, frames > 0 else { return }
-            let attack = 0.0002 * TypingSoundSynthesizer.sampleRate
-            for index in 0..<frames {
-                let t = Double(index) / TypingSoundSynthesizer.sampleRate
-                let envelope = min(1, Double(index) / attack) * exp(-t / decay)
-                let filtered = biquad.process(random.next(in: -1...1))
-                samples[startFrame + index] += Float(filtered * envelope * amplitude)
-            }
-        }
-
-        mutating func partial(
-            at start: TimeInterval,
-            frequency: Double,
-            decay: TimeInterval,
-            amplitude: Double
-        ) {
-            let startFrame = Int(start * TypingSoundSynthesizer.sampleRate)
-            let frames = min(samples.count - startFrame, Int(decay * 8 * TypingSoundSynthesizer.sampleRate))
-            guard startFrame >= 0, frames > 0 else { return }
-            let step = 2 * Double.pi * frequency / TypingSoundSynthesizer.sampleRate
-            for index in 0..<frames {
-                let t = Double(index) / TypingSoundSynthesizer.sampleRate
-                samples[startFrame + index] += Float(sin(step * Double(index)) * exp(-t / decay) * amplitude)
-            }
-        }
-
-        func normalized(peak: Float) -> [Float] {
-            let currentPeak = samples.reduce(Float(0)) { max($0, abs($1)) }
-            guard currentPeak > 0 else { return samples }
-            let scale = peak / currentPeak
-            return samples.map { $0 * scale }
-        }
-    }
-
-    /// RBJ-cookbook biquad, enough to color noise into clicks and slaps.
-    private struct Biquad {
-        enum Kind {
-            case lowPass(frequency: Double, q: Double)
-            case bandPass(frequency: Double, q: Double)
-        }
-
-        private var b0 = 0.0, b1 = 0.0, b2 = 0.0, a1 = 0.0, a2 = 0.0
-        private var x1 = 0.0, x2 = 0.0, y1 = 0.0, y2 = 0.0
-
-        init(kind: Kind, sampleRate: Double) {
-            let frequency: Double
-            let q: Double
-            switch kind {
-            case .lowPass(let f, let quality), .bandPass(let f, let quality):
-                frequency = min(f, sampleRate * 0.45)
-                q = quality
-            }
-            let omega = 2 * Double.pi * frequency / sampleRate
-            let alpha = sin(omega) / (2 * q)
-            let cosOmega = cos(omega)
-            let a0 = 1 + alpha
-            switch kind {
-            case .lowPass:
-                b0 = (1 - cosOmega) / 2 / a0
-                b1 = (1 - cosOmega) / a0
-                b2 = (1 - cosOmega) / 2 / a0
-            case .bandPass:
-                b0 = alpha / a0
-                b1 = 0
-                b2 = -alpha / a0
-            }
-            a1 = -2 * cosOmega / a0
-            a2 = (1 - alpha) / a0
-        }
-
-        mutating func process(_ x: Double) -> Double {
-            let y = b0 * x + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2
-            x2 = x1
-            x1 = x
-            y2 = y1
-            y1 = y
-            return y
+        mutating func process(_ input: Float) -> Float {
+            let output = coefficient * (previousOutput + input - previousInput)
+            previousInput = input
+            previousOutput = output
+            return output
         }
     }
 }
