@@ -384,10 +384,12 @@ final class ScreenRecordingManager {
             }
             if let sessionStart = result.sessionStartUptime {
                 var capture = pointerActivityRecorder.finish(sessionStartUptime: sessionStart, duration: result.duration)
-                capture.keystrokes = keystrokeRecorder.finish(
+                let keyboard = keystrokeRecorder.finish(
                     sessionStartUptime: sessionStart,
                     duration: result.duration
                 )
+                capture.keystrokes = keyboard.keystrokes
+                capture.typing = keyboard.typing
                 do {
                     try session.writePointerCapture(capture)
                 } catch {

@@ -8,8 +8,10 @@
 //  appear in the preview and export.
 //
 //  Only special keys (Tab, Esc, arrows, F-keys, …) and modifier shortcuts
-//  (⌘C, ⌃⌥→, …) are recorded. Plain typing - including shifted letters -
-//  never lands in the sidecar.
+//  (⌘C, ⌃⌥→, …) are recorded as captions. Plain typing - including shifted
+//  letters - never lands in the sidecar as text: for typing sounds only the
+//  moment of each keypress and a coarse class (letter, space, return,
+//  delete, modifier) are kept.
 //
 
 import AppKit
@@ -23,12 +25,19 @@ final class RecordingKeystrokeRecorder {
         let key: String
     }
 
+    private struct CapturedTypingPress {
+        let uptime: TimeInterval
+        let kind: RecordingTypingKeyKind
+    }
+
     private struct PauseInterval {
         let start: TimeInterval
         let end: TimeInterval
     }
 
     private var events: [CapturedKeystroke] = []
+    private var typingPresses: [CapturedTypingPress] = []
+    private static let maximumTypingPresses = 200_000
     private var pauseStartedUptime: TimeInterval?
     private var pauseIntervals: [PauseInterval] = []
     private var isCapturing = false
@@ -47,6 +56,7 @@ final class RecordingKeystrokeRecorder {
     func start() {
         stop()
         events = []
+        typingPresses = []
         pauseStartedUptime = nil
         pauseIntervals = []
         lastModifierFlags = []
@@ -111,7 +121,10 @@ final class RecordingKeystrokeRecorder {
 
     /// Converts raw host-clock events onto the written movie timeline, like
     /// PointerActivityRecorder.finish. Pause offsets are computed per event.
-    func finish(sessionStartUptime: TimeInterval, duration: TimeInterval) -> [RecordingKeystrokeEvent] {
+    func finish(
+        sessionStartUptime: TimeInterval,
+        duration: TimeInterval
+    ) -> (keystrokes: [RecordingKeystrokeEvent], typing: [RecordingTypingEvent]) {
         var completedPauses = pauseIntervals
         if let pauseStartedUptime {
             completedPauses.append(PauseInterval(
@@ -120,24 +133,29 @@ final class RecordingKeystrokeRecorder {
             ))
         }
 
-        let mapped = events.compactMap { event -> RecordingKeystrokeEvent? in
+        func movieTime(for uptime: TimeInterval) -> TimeInterval? {
             let precedingPauseDuration = completedPauses.reduce(0.0) { total, interval in
-                guard event.uptime > interval.start else { return total }
-                return total + max(0, min(event.uptime, interval.end) - interval.start)
+                guard uptime > interval.start else { return total }
+                return total + max(0, min(uptime, interval.end) - interval.start)
             }
-            let time = event.uptime - sessionStartUptime - precedingPauseDuration
+            let time = uptime - sessionStartUptime - precedingPauseDuration
             guard time >= 0, time <= duration + 0.5 else { return nil }
-            return RecordingKeystrokeEvent(
-                time: min(time, duration),
-                modifiers: event.modifiers,
-                key: event.key
-            )
+            return min(time, duration)
         }
 
+        let mapped = events.compactMap { event -> RecordingKeystrokeEvent? in
+            movieTime(for: event.uptime).map {
+                RecordingKeystrokeEvent(time: $0, modifiers: event.modifiers, key: event.key)
+            }
+        }
+        let typing = typingPresses.compactMap { press -> RecordingTypingEvent? in
+            movieTime(for: press.uptime).map { RecordingTypingEvent(time: $0, kind: press.kind) }
+        }
         events = []
+        typingPresses = []
         pauseIntervals = []
         pauseStartedUptime = nil
-        return mapped
+        return (mapped, typing)
     }
 
     // MARK: - Event sources
@@ -208,7 +226,14 @@ final class RecordingKeystrokeRecorder {
         case .flagsChanged:
             let currentFlags = event.modifierFlags.intersection(Self.trackedModifierMask)
             let changedFlags = currentFlags.symmetricDifference(lastModifierFlags)
+            let pressedFlags = currentFlags.subtracting(lastModifierFlags)
             lastModifierFlags = currentFlags
+
+            if !pressedFlags.subtracting(.capsLock).isEmpty {
+                recordTypingPress(.modifier, uptime: uptime)
+            } else if changedFlags.contains(.capsLock) {
+                recordTypingPress(.key, uptime: uptime)
+            }
 
             // Caps Lock toggles in/out - record the toggle as its own event.
             if changedFlags.contains(.capsLock) {
@@ -218,6 +243,8 @@ final class RecordingKeystrokeRecorder {
         case .keyDown:
             // Skip auto-repeats so a held key doesn't spam the timeline.
             guard !event.isARepeat else { return }
+
+            recordTypingPress(RecordingTypingKeyKind.kind(forKeyCode: event.keyCode), uptime: uptime)
 
             let modifiers = Self.effectiveModifiers(
                 rawFlags: event.modifierFlags,
@@ -252,6 +279,16 @@ final class RecordingKeystrokeRecorder {
 
         default:
             break
+        }
+    }
+
+    /// Keeps only when a key went down and its coarse class - never which
+    /// key - so typing sounds can be laid under the footage.
+    private func recordTypingPress(_ kind: RecordingTypingKeyKind, uptime: TimeInterval) {
+        guard pauseStartedUptime == nil else { return }
+        typingPresses.append(CapturedTypingPress(uptime: uptime, kind: kind))
+        if typingPresses.count > Self.maximumTypingPresses {
+            typingPresses.removeFirst(typingPresses.count - Self.maximumTypingPresses)
         }
     }
 
