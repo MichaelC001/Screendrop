@@ -89,10 +89,7 @@ struct RecordingExportOptionsPopover: View {
                 )
             )
 
-            Text(formatHint)
-                .font(.inspectorLabel)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+            InspectorHint(formatHint)
 
             toggle("Include audio", isOn: Binding(
                 get: { !settings.removeAudio },
@@ -115,7 +112,7 @@ struct RecordingExportOptionsPopover: View {
                     onConfirm(confirmed)
                 }
                 .keyboardShortcut(.defaultAction)
-                .tint(.accentColor)
+                .buttonStyle(.borderedProminent)
             }
             .controlSize(.small)
             .padding(.top, 4)
@@ -140,16 +137,7 @@ struct RecordingExportOptionsPopover: View {
     }
 
     private func toggle(_ title: String, isOn: Binding<Bool>) -> some View {
-        HStack(spacing: 8) {
-            Text(title)
-                .font(.inspectorLabel)
-                .foregroundStyle(.primary.opacity(0.82))
-            Spacer(minLength: 8)
-            Toggle(title, isOn: isOn)
-                .labelsHidden()
-                .toggleStyle(.switch)
-                .controlSize(.small)
-        }
+        InspectorToggleRow(title, isOn: isOn)
     }
 
     /// Segmented row matching the inspector's group-label-above-control
@@ -165,7 +153,12 @@ struct RecordingExportOptionsPopover: View {
                 options: options,
                 isSelected: { $0 == selection.wrappedValue },
                 onTap: { selection.wrappedValue = $0 },
-                label: { Text($0.rawValue).font(.inspectorLabel) }
+                label: {
+                    Text($0.rawValue)
+                        .font(.inspectorSegment)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                }
             )
         }
     }
