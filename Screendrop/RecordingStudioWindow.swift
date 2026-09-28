@@ -2777,7 +2777,6 @@ private enum StudioInspectorSection: String, Hashable, CaseIterable {
     case motion
     case cursor
     case keystrokes
-    case typingSounds
     case transcription
     case camera
     case audio
@@ -2936,37 +2935,13 @@ private struct StudioInspector: View {
                     }
                 }
 
-                if model.hasKeystrokes {
+                if model.hasKeystrokes || model.hasTypingEvents {
                     InspectorDisclosureSection(
-                        title: "Keystrokes",
-                        summary: model.showsKeystrokes
-                            ? StudioInspectorSummary.keystrokePlacement(model.keystrokePlacement)
-                            : nil,
-                        isExpanded: expansionBinding(for: .keystrokes),
-                        accessory: {
-                            sectionToggle("Show keystrokes", isOn: $model.showsKeystrokes, section: .keystrokes)
-                        }
+                        "Keystrokes",
+                        summary: keystrokesSummary,
+                        isExpanded: expansionBinding(for: .keystrokes)
                     ) {
                         keystrokeControls
-                    }
-                }
-
-                if model.hasTypingEvents {
-                    InspectorDisclosureSection(
-                        title: "Typing Sounds",
-                        summary: model.typingSounds.isEnabled
-                            ? "\(model.typingSounds.profile.title) · \(InspectorValueFormat.percent().displayString(for: CGFloat(model.typingSounds.clampedVolume)))"
-                            : nil,
-                        isExpanded: expansionBinding(for: .typingSounds),
-                        accessory: {
-                            sectionToggle(
-                                "Play typing sounds",
-                                isOn: typingSoundsBinding(\.isEnabled),
-                                section: .typingSounds
-                            )
-                        }
-                    ) {
-                        typingSoundControls
                     }
                 }
 
@@ -3344,18 +3319,47 @@ private struct StudioInspector: View {
 
     // MARK: Keystrokes
 
+    /// Shortcut captions and typing sounds both come from what was pressed
+    /// on the keyboard, so they share a section; each part only appears
+    /// when the recording captured its data.
     private var keystrokeControls: some View {
-        VStack(alignment: .leading, spacing: InspectorMetrics.rowSpacing) {
-            InspectorRow("Top") {
-                keystrokePlacementRow([.topLeft, .topCenter, .topRight])
+        VStack(alignment: .leading, spacing: InspectorMetrics.groupSpacing) {
+            if model.hasKeystrokes {
+                VStack(alignment: .leading, spacing: InspectorMetrics.rowSpacing) {
+                    InspectorToggleRow("Shortcut captions", isOn: $model.showsKeystrokes)
+
+                    VStack(alignment: .leading, spacing: InspectorMetrics.rowSpacing) {
+                        InspectorRow("Top") {
+                            keystrokePlacementRow([.topLeft, .topCenter, .topRight])
+                        }
+                        InspectorRow("Bottom") {
+                            keystrokePlacementRow([.bottomLeft, .bottomCenter, .bottomRight])
+                        }
+                    }
+                    .disabled(!model.showsKeystrokes)
+                    .opacity(model.showsKeystrokes ? 1 : 0.48)
+                }
+                .help("Shortcuts you pressed while recording appear as a caption")
             }
-            InspectorRow("Bottom") {
-                keystrokePlacementRow([.bottomLeft, .bottomCenter, .bottomRight])
+
+            if model.hasTypingEvents {
+                VStack(alignment: .leading, spacing: InspectorMetrics.rowSpacing) {
+                    InspectorToggleRow("Typing sounds", isOn: typingSoundsBinding(\.isEnabled))
+                    typingSoundControls
+                }
             }
         }
-        .help("Shortcuts you pressed while recording appear as a caption")
-        .disabled(!model.showsKeystrokes)
-        .opacity(model.showsKeystrokes ? 1 : 0.48)
+    }
+
+    private var keystrokesSummary: String? {
+        var parts: [String] = []
+        if model.hasKeystrokes, model.showsKeystrokes {
+            parts.append(StudioInspectorSummary.keystrokePlacement(model.keystrokePlacement))
+        }
+        if model.hasTypingEvents, model.typingSounds.isEnabled {
+            parts.append("Typing sounds")
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
     private func keystrokePlacementRow(
@@ -3369,11 +3373,8 @@ private struct StudioInspector: View {
         )
     }
 
-    // MARK: Typing sounds
-
     private var typingSoundControls: some View {
         VStack(alignment: .leading, spacing: InspectorMetrics.rowSpacing) {
-            // One sound for now; a picker returns when there's a second.
             InspectorFieldPair {
                 InspectorSlider(
                     "Volume",
@@ -3391,7 +3392,7 @@ private struct StudioInspector: View {
                 .help("Play a few seconds of typing in this sound")
             }
         }
-        .help("Synthesized key sounds play wherever you typed while recording")
+        .help("Key sounds play wherever you typed while recording")
         .disabled(!model.typingSounds.isEnabled)
         .opacity(model.typingSounds.isEnabled ? 1 : 0.48)
     }
