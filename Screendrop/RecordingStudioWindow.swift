@@ -113,6 +113,7 @@ private struct RecordingStudioContent: View {
             }
         }
         .navigationTitle(windowTitle)
+        .navigationSubtitle(windowSubtitle)
         .onWindowChange { window in
             guard let window else {
                 closeGuard.detach()
@@ -198,9 +199,29 @@ private struct RecordingStudioContent: View {
     /// AppKit already paints the unsaved dot in the close button; the title
     /// says it in words for anyone who reads the title bar first.
     private var windowTitle: String {
-        model.hasUnsavedChanges
-            ? "\(model.projectDisplayName) - Edited"
-            : model.projectDisplayName
+        let name = Self.friendlyTitle(for: model.projectDisplayName)
+        return model.hasUnsavedChanges ? "\(name) - Edited" : name
+    }
+
+    /// Length of the edited cut and the source resolution.
+    private var windowSubtitle: String {
+        guard model.isLoaded else { return "" }
+        let total = Int(model.duration.rounded())
+        let clock = String(format: "%d:%02d", total / 60, total % 60)
+        let size = model.videoSize
+        return "\(clock) · \(Int(size.width))×\(Int(size.height))"
+    }
+
+    /// Unrenamed recordings are named `Screendrop_<timestamp>_<id>` on disk;
+    /// the title shows when it was recorded instead of the raw file name.
+    private static func friendlyTitle(for name: String) -> String {
+        let parts = name.split(separator: "_")
+        guard parts.count >= 2, parts[0] == "Screendrop" else { return name }
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd-HH-mm-ss"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        guard let date = formatter.date(from: String(parts[1])) else { return name }
+        return "Recording · \(date.formatted(date: .abbreviated, time: .shortened))"
     }
 
     private func configureCloseGuard() {
@@ -239,13 +260,15 @@ private struct RecordingStudioContent: View {
                     .labelStyle(.titleAndIcon)
                     .foregroundStyle(.green)
             } else {
+                // Icon-only: a greyed-out "Save" title read as broken
+                // whenever there was nothing to save.
                 Label("Save", systemImage: "square.and.arrow.down")
-                    .labelStyle(.titleAndIcon)
+                    .labelStyle(.iconOnly)
             }
         }
         .keyboardShortcut("s", modifiers: .command)
         .disabled(!model.hasUnsavedChanges)
-        .help("Save this project (⌘S)")
+        .help(model.hasUnsavedChanges ? "Save this project (⌘S)" : "All changes saved")
     }
 
     /// Share pipeline in one toolbar slot: render → upload → link copied.
@@ -323,6 +346,7 @@ private struct RecordingStudioContent: View {
                 Label("Export", systemImage: "arrow.down.circle")
                     .labelStyle(.titleAndIcon)
             }
+            .buttonStyle(.borderedProminent)
             .tint(.accentColor)
             .disabled(!model.isLoaded || model.shareState.isBusy)
         case .exporting(let progress):
