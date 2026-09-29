@@ -208,7 +208,6 @@ nonisolated enum AnnotationBackgroundRenderer {
             if castsShadow {
                 drawShadow(
                     path: geometry.cardPath,
-                    knockoutPath: geometry.cardShadowKnockoutPath,
                     strength: settings.shadow,
                     style: settings.shadowStyle,
                     context: context
@@ -224,7 +223,6 @@ nonisolated enum AnnotationBackgroundRenderer {
         } else if castsShadow {
             drawShadow(
                 path: geometry.imagePath,
-                knockoutPath: geometry.imageShadowKnockoutPath,
                 strength: settings.shadow,
                 style: settings.shadowStyle,
                 context: context
@@ -434,12 +432,14 @@ nonisolated enum AnnotationBackgroundRenderer {
         context.stroke(rect.insetBy(dx: 8, dy: 8))
     }
 
-    /// Paints the shadow without laying any ink inside the card: the fill is
-    /// clipped away so only the spill survives. That keeps translucent borders
-    /// and screenshots with alpha from being backed by black.
+    /// Paints the shadow without laying any ink: the caster is parked just
+    /// outside the clip and the shadow offset carries its spill back under the
+    /// card, so no solid black ever reaches the bitmap. The card interior is
+    /// then clipped away with its exact path. A clipped black caster left a
+    /// dark antialiased fringe around rounded borders; clipping only the soft
+    /// shadow leaves nothing darker than the shadow itself.
     private static func drawShadow(
         path: CGPath,
-        knockoutPath: CGPath,
         strength: CGFloat,
         style: AnnotationShadowStyle,
         context: CGContext
@@ -454,19 +454,29 @@ nonisolated enum AnnotationBackgroundRenderer {
 
         context.saveGState()
 
+        let clipBounds = context.boundingBoxOfClipPath
         let exterior = CGMutablePath()
-        exterior.addRect(context.boundingBoxOfClipPath)
-        exterior.addPath(knockoutPath)
+        exterior.addRect(clipBounds)
+        exterior.addPath(path)
         context.addPath(exterior)
         context.clip(using: .evenOdd)
 
+        // Shadow offsets live in device space while paths follow the CTM. The
+        // export contexts only ever translate, so both use the same units.
+        let casterShift = ceil(rect.maxX - clipBounds.minX) + 1
+        var parked = CGAffineTransform(translationX: -casterShift, y: 0)
+        guard let caster = path.copy(using: &parked) else {
+            context.restoreGState()
+            return
+        }
+
         context.setShadow(
-            offset: CGSize(width: 0, height: -layer.yOffset),
+            offset: CGSize(width: casterShift, height: -layer.yOffset),
             blur: layer.coreGraphicsBlur,
             color: NSColor.black.withAlphaComponent(layer.alpha).cgColor
         )
         context.setFillColor(NSColor.black.cgColor)
-        context.addPath(path)
+        context.addPath(caster)
         context.fillPath()
 
         context.restoreGState()
