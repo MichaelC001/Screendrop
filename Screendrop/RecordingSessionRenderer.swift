@@ -181,20 +181,8 @@ enum RecordingSessionRenderer {
             audioVolume: document?.audioVolume ?? 1,
             reframe: reframe,
             fitContentAspect: fitContentAspect,
-            usesUniformPadding: aspect == .original,
-            typingSounds: Self.typingSounds(document: document, capture: capture)
+            usesUniformPadding: aspect == .original
         )
-    }
-
-    /// A project that never chose uses the last-picked defaults, the same
-    /// way Studio opens it.
-    private static func typingSounds(
-        document: RecordingEditDocument?,
-        capture: PointerCaptureFile
-    ) -> RecordingStudioExporter.Configuration.TypingSounds? {
-        let settings = document?.typingSounds ?? TypingSoundDefaults.settings
-        guard settings.isEnabled, !capture.typing.isEmpty else { return nil }
-        return .init(events: capture.typing, settings: settings)
     }
 
     static func presentFailure(_ error: Error) {

@@ -117,10 +117,6 @@ nonisolated enum PointerStreamSanitizer {
         sanitized.travel = sanitizedTravel
         sanitized.presses = sanitizedPresses
         sanitized.keystrokes = sanitizedKeystrokes(capture.keystrokes)
-        sanitized.typing = capture.typing
-            .filter { $0.time.isFinite }
-            .map { RecordingTypingEvent(time: max(0, $0.time), kind: $0.kind) }
-            .sorted { $0.time < $1.time }
         sanitized.artwork = artwork
         sanitized.isSanitized = true
         return buildStream(from: sanitized)

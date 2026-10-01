@@ -334,9 +334,6 @@ nonisolated struct PointerCaptureFile: Codable, Sendable, Equatable {
     var travel: [PointerTravelSample] = []
     var presses: [PointerPressEvent] = []
     var keystrokes: [RecordingKeystrokeEvent] = []
-    /// Every keypress's time and coarse class, for typing sounds. Empty for
-    /// recordings made before typing sounds existed.
-    var typing: [RecordingTypingEvent] = []
     var artwork: [PointerArtwork] = []
     /// Prevents deterministic cleanup from being applied repeatedly when the
     /// same sidecar passes through Studio, flattening, and export builders.
@@ -413,7 +410,6 @@ extension PointerCaptureFile {
         case travel
         case presses
         case keystrokes
-        case typing
         case artwork
         case isSanitized
     }
@@ -426,10 +422,6 @@ extension PointerCaptureFile {
         keystrokes = try container.decodeIfPresent(
             [RecordingKeystrokeEvent].self,
             forKey: .keystrokes
-        ) ?? []
-        typing = try container.decodeIfPresent(
-            [RecordingTypingEvent].self,
-            forKey: .typing
         ) ?? []
         artwork = try container.decodeIfPresent(
             [PointerArtwork].self,
@@ -444,7 +436,6 @@ extension PointerCaptureFile {
         try container.encode(travel, forKey: .travel)
         try container.encode(presses, forKey: .presses)
         try container.encode(keystrokes, forKey: .keystrokes)
-        try container.encode(typing, forKey: .typing)
         try container.encode(artwork, forKey: .artwork)
         try container.encode(isSanitized, forKey: .isSanitized)
     }

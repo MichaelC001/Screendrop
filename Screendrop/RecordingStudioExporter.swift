@@ -66,15 +66,6 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
         /// `reframe`.
         let fitContentAspect: CGFloat?
         let usesUniformPadding: Bool
-        /// Non-nil when synthesized keyboard sounds should be mixed under
-        /// the captured typing.
-        let typingSounds: TypingSounds?
-
-        /// Captured keypresses on the source timeline and how to voice them.
-        struct TypingSounds: Sendable {
-            let events: [RecordingTypingEvent]
-            let settings: TypingSoundSettings
-        }
 
         init(
             screenURL: URL,
@@ -97,8 +88,7 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
             audioVolume: Double = 1,
             reframe: ReframeTrack? = nil,
             fitContentAspect: CGFloat? = nil,
-            usesUniformPadding: Bool = false,
-            typingSounds: TypingSounds? = nil
+            usesUniformPadding: Bool = false
         ) {
             self.screenURL = screenURL
             self.cameraURL = cameraURL
@@ -121,7 +111,6 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
             self.reframe = reframe
             self.fitContentAspect = fitContentAspect
             self.usesUniformPadding = usesUniformPadding
-            self.typingSounds = typingSounds
         }
     }
 
@@ -227,70 +216,23 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
         // An imported soundtrack replaces the recorded one wholesale, and it
         // needs its own reader: it is a different file, already carrying the
         // finished cut's timing, so it plays straight through from zero
-        // while the screen reader stays on the composed video. Typing sounds
-        // take the same route, mixed with whichever soundtrack is in play.
+        // while the screen reader stays on the composed video.
         var audioOutput: AVAssetReaderAudioMixOutput?
         var replacementReader: AVAssetReader?
-        var typingTrackURL: URL?
-        // Tracks don't keep their assets alive; hold every source asset the
-        // audio composition reads from until the export finishes.
-        var retainedAudioAssets: [AVAsset] = []
-        defer {
-            withExtendedLifetime(retainedAudioAssets) {}
-            if let typingTrackURL {
-                try? FileManager.default.removeItem(at: typingTrackURL)
-            }
-        }
         if !configuration.exportSettings.removeAudio {
-            let typing = try await Self.makeTypingTrack(
-                configuration.typingSounds,
-                clipTimeline: clipTimeline
-            )
-            typingTrackURL = typing?.url
-            if let typing {
-                retainedAudioAssets.append(typing.asset)
-            }
-
-            var replacementTracks: [AVAssetTrack] = []
             if let replacementURL = configuration.audioReplacementURL {
                 let replacementAsset = AVURLAsset(url: replacementURL)
-                retainedAudioAssets.append(replacementAsset)
-                replacementTracks = try await replacementAsset.loadTracks(withMediaType: .audio)
-            }
-
-            if let typing {
-                let baseTracks = configuration.audioReplacementURL == nil ? audioTracks : replacementTracks
-                let (asset, baseCompositionTracks) = try await Self.makeMixedAudioAsset(
-                    baseTracks: baseTracks,
-                    typing: typing,
-                    duration: clipTimeline.duration
-                )
-                let reader = try AVAssetReader(asset: asset)
-                reader.timeRange = exportTimeRange
-                let output = AVAssetReaderAudioMixOutput(
-                    audioTracks: asset.tracks(withMediaType: .audio),
-                    audioSettings: nil
-                )
-                output.audioMix = RecordingAudioGain.makeMix(
-                    tracks: baseCompositionTracks,
-                    volume: configuration.audioVolume
-                )
-                output.alwaysCopiesSampleData = false
-                reader.add(output)
-                replacementReader = reader
-                audioOutput = output
-            } else if configuration.audioReplacementURL != nil {
-                if !replacementTracks.isEmpty, let replacementURL = configuration.audioReplacementURL {
-                    let reader = try AVAssetReader(asset: AVURLAsset(url: replacementURL))
+                let replacementTracks = try await replacementAsset.loadTracks(withMediaType: .audio)
+                if !replacementTracks.isEmpty {
+                    let reader = try AVAssetReader(asset: replacementAsset)
                     // Clamps a soundtrack that overruns the cut; a shorter
                     // one simply leaves the tail silent.
                     reader.timeRange = exportTimeRange
-                    let tracks = try await reader.asset.loadTracks(withMediaType: .audio)
                     let output = AVAssetReaderAudioMixOutput(
-                        audioTracks: tracks,
+                        audioTracks: replacementTracks,
                         audioSettings: nil
                     )
-                    output.audioMix = RecordingAudioGain.makeMix(tracks: tracks, volume: configuration.audioVolume)
+                    output.audioMix = RecordingAudioGain.makeMix(tracks: replacementTracks, volume: configuration.audioVolume)
                     output.alwaysCopiesSampleData = false
                     reader.add(output)
                     replacementReader = reader
@@ -575,74 +517,6 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
             try await finishAndAppend(previous.frame, at: previous.index)
         }
         input.markAsFinished()
-    }
-
-    /// Renders the typing-sound track for the finished cut, or nil when
-    /// typing sounds are off or every keypress was cut away.
-    private static func makeTypingTrack(
-        _ typingSounds: Configuration.TypingSounds?,
-        clipTimeline: RecordingClipTimeline
-    ) async throws -> (asset: AVURLAsset, track: AVAssetTrack, url: URL, duration: TimeInterval)? {
-        guard let typingSounds, typingSounds.settings.isEnabled else { return nil }
-        let events = TypingSoundTrackRenderer.editorEvents(
-            from: typingSounds.events,
-            clipTimeline: clipTimeline
-        )
-        guard !events.isEmpty else { return nil }
-        let url = TypingSoundTrackRenderer.temporaryURL(named: "export-\(UUID().uuidString)")
-        try await TypingSoundTrackRenderer.render(
-            events: events,
-            duration: clipTimeline.duration,
-            settings: typingSounds.settings,
-            to: url
-        )
-        let asset = AVURLAsset(url: url)
-        guard let track = try await asset.loadTracks(withMediaType: .audio).first else {
-            try? FileManager.default.removeItem(at: url)
-            return nil
-        }
-        return (asset, track, url, clipTimeline.duration)
-    }
-
-    /// The soundtrack and the typing track side by side from zero, so one
-    /// audio-mix output sums them. Returns the soundtrack's composition
-    /// tracks so the project's gain applies to them and not to the typing.
-    private static func makeMixedAudioAsset(
-        baseTracks: [AVAssetTrack],
-        typing: (asset: AVURLAsset, track: AVAssetTrack, url: URL, duration: TimeInterval),
-        duration: TimeInterval
-    ) async throws -> (AVMutableComposition, [AVMutableCompositionTrack]) {
-        let composition = AVMutableComposition()
-        var baseCompositionTracks: [AVMutableCompositionTrack] = []
-        for track in baseTracks {
-            let range = try await track.load(.timeRange)
-            let length = min(range.end.seconds, duration)
-            guard length > 0,
-                  let compositionTrack = composition.addMutableTrack(
-                      withMediaType: .audio,
-                      preferredTrackID: kCMPersistentTrackID_Invalid
-                  ) else { continue }
-            try compositionTrack.insertTimeRange(
-                CMTimeRange(start: .zero, duration: CMTime(seconds: length, preferredTimescale: 48_000)),
-                of: track,
-                at: .zero
-            )
-            baseCompositionTracks.append(compositionTrack)
-        }
-        if let typingTrack = composition.addMutableTrack(
-            withMediaType: .audio,
-            preferredTrackID: kCMPersistentTrackID_Invalid
-        ) {
-            try typingTrack.insertTimeRange(
-                CMTimeRange(
-                    start: .zero,
-                    duration: CMTime(seconds: min(typing.duration, duration), preferredTimescale: 48_000)
-                ),
-                of: typing.track,
-                at: .zero
-            )
-        }
-        return (composition, baseCompositionTracks)
     }
 
     private func pumpAudio(
