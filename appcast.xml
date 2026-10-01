@@ -27,6 +27,33 @@
     -->
 
     <item>
+      <title>Version 0.34.0</title>
+      <sparkle:version>32</sparkle:version>
+      <sparkle:shortVersionString>0.34.0</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.4</sparkle:minimumSystemVersion>
+      <pubDate>Thu, 01 Oct 2026 17:25:13 +0000</pubDate>
+      <description><![CDATA[
+        <h2>What's New in 0.34.0</h2>
+        <ul>
+          <li>Faster video exports: every frame now renders on the GPU, the CPU and GPU work on consecutive frames in parallel, HEVC is tuned for encoding speed, and exports no longer run on the main thread, so Studio stays responsive while you export. In our testing, a 50-second camera recording exported up to 40% faster. Actual speedups depend on your Mac, recording, and export settings.</li>
+          <li>An interactive Studio canvas that matches the export: click to play or pause, see the frame you're skimming, drag a Fixed zoom's target right on the paused canvas, and move the camera bubble with snapping guides. The bubble now always stays clear of the canvas edge.</li>
+          <li>A reworked Studio timeline: grouped transport controls, a single current/total time readout, and new shortcuts: ⌘B or S to split at the playhead, arrow keys to step a frame, and Shift-arrow to step a second. Reset Clips now asks for confirmation.</li>
+          <li>A cleaner Studio inspector, consistent with the screenshot editor: timeline selections pinned to the top, collapsed sections with summaries, remembered expanded sections, clip speed presets, and the audio format chosen at export time.</li>
+          <li>A tidier Studio toolbar: a prominent Export button, an icon-only Save, and untitled recordings named by when they were recorded, with length and resolution shown underneath.</li>
+          <li>A refreshed screenshot editor inspector: on/off switches for Border and Watermark, summaries on collapsed sections, and remembered expanded sections.</li>
+          <li>A refined Library window on macOS 27, with a rounded content area beside the sidebar.</li>
+          <li>Fixed a thin dark outline around the corners of rounded screenshot borders, in both the editor and exported images.</li>
+        </ul>
+      ]]></description>
+      <enclosure
+        url="https://github.com/fayazara/screendrop/releases/download/v0.34.0/Screendrop.dmg"
+        type="application/octet-stream"
+        sparkle:edSignature="LEGdoKNimjv/AvJ0hVUaU5Te33t86AVK8YnVIL4X9bJVXG4+Oy+lhqZvpdEchSqFhdqIoJWs5BqSsG+wqe/RAg=="
+        length="7393675"
+      />
+    </item>
+
+    <item>
       <title>Version 0.33.0</title>
       <sparkle:version>31</sparkle:version>
       <sparkle:shortVersionString>0.33.0</sparkle:shortVersionString>
