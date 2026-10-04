@@ -105,31 +105,27 @@ struct StudioInspector: View {
     // MARK: List
 
     /// Timeline selections edit at the top, where attention lands after
-    /// clicking a zoom or clip, on a tinted card so they read apart from the
-    /// recording-wide settings below.
+    /// clicking a zoom or clip. They are ordinary sections - same controls,
+    /// same surface - marked only by an accent glyph in the title and set
+    /// apart from the recording-wide settings by a group's worth of space.
     @ViewBuilder
     private var selectionSection: some View {
-        Group {
-            if let cue = model.selectedCue {
+        if let cue = model.selectedCue {
+            VStack(spacing: 0) {
                 selectedZoomSection(for: cue)
-            } else if let clip = model.selectedClip {
-                selectedClipSection(for: clip)
+                StudioGroupBreak()
             }
+            .id(selection)
+            .transition(AnyTransition(.blurReplace).combined(with: .move(edge: .top)).combined(with: .opacity))
+        } else if let clip = model.selectedClip {
+            VStack(spacing: 0) {
+                selectedClipSection(for: clip)
+                StudioGroupBreak()
+            }
+            .id(selection)
+            .transition(AnyTransition(.blurReplace).combined(with: .move(edge: .top)).combined(with: .opacity))
         }
-        .background {
-            RoundedRectangle(
-                cornerRadius: InspectorMetrics.listRadius + Self.selectionCardInset,
-                style: .continuous
-            )
-            .fill(Color.accentColor.opacity(colorScheme == .dark ? 0.12 : 0.07))
-            .padding(.horizontal, Self.selectionCardInset)
-        }
-        .padding(.top, 6)
-        .id(selection)
-        .transition(AnyTransition(.blurReplace).combined(with: .move(edge: .top)).combined(with: .opacity))
     }
-
-    private static let selectionCardInset: CGFloat = 6
 
     /// Settings run outside-in, in four groups split by extra space: how the
     /// frame looks (canvas, background, the video card, the camera on it),
@@ -452,35 +448,44 @@ struct StudioInspector: View {
     /// selection.
     private func selectedZoomSection(for selected: ZoomCue) -> some View {
         StudioSection(
-            "Selected Zoom",
-            isOn: Binding(
-                get: { selected.isEnabled },
-                set: { isEnabled in
-                    var updated = selected
-                    updated.isEnabled = isEnabled
-                    model.updateZoomCue(updated)
-                }
-            ),
-            toggleTitle: "Use this zoom",
-            accessory: { selectionCloseButton }
-        ) {
-            VStack(alignment: .leading, spacing: InspectorMetrics.groupSpacing) {
-                if model.zoomEnabled {
-                    selectedZoomControls(for: selected)
-                } else {
-                    VStack(alignment: .leading, spacing: InspectorMetrics.rowSpacing) {
-                        InspectorHint("Zooms are turned off for this recording.")
-                        InspectorActionButton("Turn On Zooms", systemImage: "plus.magnifyingglass") {
-                            withAnimation(.morphIfAllowed) { model.zoomEnabled = true }
-                        }
-                    }
-                    .transition(AnyTransition(.blurReplace))
-                }
-
-                InspectorActionButton("Remove Zoom", systemImage: "trash", role: .destructive) {
+            title: "Selected Zoom",
+            symbol: selected.anchorMode == .pinnedAnchor ? "scope" : "plus.magnifyingglass",
+            accessory: {
+                InspectorIconButton(systemName: "trash", help: "Remove Zoom") {
                     withAnimation(.morphIfAllowed) { model.removeZoomCue(id: selected.id) }
                 }
-                .help("Remove the selected zoom")
+                selectionCloseButton
+            }
+        ) {
+            VStack(alignment: .leading, spacing: InspectorMetrics.groupSpacing) {
+                InspectorToggleRow(
+                    "Use this zoom",
+                    isOn: Binding(
+                        get: { selected.isEnabled },
+                        set: { isEnabled in
+                            var updated = selected
+                            updated.isEnabled = isEnabled
+                            withAnimation(.morphIfAllowed) { model.updateZoomCue(updated) }
+                        }
+                    )
+                )
+
+                if !model.zoomEnabled {
+                    HStack(spacing: InspectorMetrics.rowSpacing) {
+                        InspectorHint("Zooms are off for this recording.")
+                        Spacer(minLength: 0)
+                        Button("Turn On") {
+                            withAnimation(.morphIfAllowed) { model.zoomEnabled = true }
+                        }
+                        .buttonStyle(.plain)
+                        .font(.inspectorValue)
+                        .foregroundStyle(Color.accentColor)
+                    }
+                    .transition(AnyTransition(.blurReplace))
+                } else if selected.isEnabled {
+                    selectedZoomControls(for: selected)
+                        .transition(AnyTransition(.blurReplace).combined(with: .opacity))
+                }
             }
         }
     }
@@ -588,29 +593,31 @@ struct StudioInspector: View {
     }
 
     private func selectedClipSection(for clip: RecordingClipSegment) -> some View {
-        StudioSection("Selected Clip", accessory: { selectionCloseButton }) {
-            VStack(alignment: .leading, spacing: InspectorMetrics.rowSpacing) {
-                VStack(alignment: .leading, spacing: InspectorMetrics.groupLabelSpacing) {
-                    InspectorGroupLabel("Speed")
-
-                    InspectorSegmented(
-                        options: RecordingClipSegment.speedPresets,
-                        isSelected: { abs($0 - clip.speed) < 0.001 },
-                        onTap: { model.setClipSpeed($0, forClipID: clip.id) },
-                        label: { speed in
-                            Text(RecordingClipSegment.speedTitle(speed))
-                                .font(.inspectorSegment)
-                        }
-                    )
-                    .help("Audio speeds up with the clip")
-                }
-
+        StudioSection(
+            title: "Selected Clip",
+            symbol: "film",
+            accessory: {
                 if model.canDeleteSelectedClip {
-                    InspectorActionButton("Delete Clip", systemImage: "trash", role: .destructive) {
+                    InspectorIconButton(systemName: "trash", help: "Delete Clip") {
                         withAnimation(.morphIfAllowed) { model.deleteSelectedClip() }
                     }
-                    .help("Remove this part of the video")
                 }
+                selectionCloseButton
+            }
+        ) {
+            VStack(alignment: .leading, spacing: InspectorMetrics.groupLabelSpacing) {
+                InspectorGroupLabel("Speed")
+
+                InspectorSegmented(
+                    options: RecordingClipSegment.speedPresets,
+                    isSelected: { abs($0 - clip.speed) < 0.001 },
+                    onTap: { model.setClipSpeed($0, forClipID: clip.id) },
+                    label: { speed in
+                        Text(RecordingClipSegment.speedTitle(speed))
+                            .font(.inspectorSegment)
+                    }
+                )
+                .help("Audio speeds up with the clip")
             }
         }
     }
@@ -1039,6 +1046,9 @@ private struct StudioSection<Content: View, Accessory: View>: View {
     let title: String
     var isOn: Binding<Bool>?
     var toggleTitle = ""
+    /// An accent glyph before the title, marking sections that edit a
+    /// selection rather than the whole recording.
+    var symbol: String? = nil
     @ViewBuilder var accessory: () -> Accessory
     @ViewBuilder var content: () -> Content
 
@@ -1048,6 +1058,12 @@ private struct StudioSection<Content: View, Accessory: View>: View {
         VStack(alignment: .leading, spacing: 0) {
             if !title.isEmpty || isOn != nil {
                 HStack(spacing: 6) {
+                    if let symbol {
+                        Image(systemName: symbol)
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(Color.accentColor)
+                    }
+
                     Text(title)
                         .font(.inspectorSectionHeader)
                         .foregroundStyle(showsContent ? Color.primary.opacity(0.85) : Color.secondary)

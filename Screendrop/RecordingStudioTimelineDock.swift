@@ -534,12 +534,13 @@ private struct StudioTimelineScale: Equatable {
     }
 }
 
-/// Full-height playhead with a grabbable knob above the ruler. At rest the
-/// knob is a slim accent capsule with a grip line; hovered or dragged it
-/// grows into a capsule reading out the time, then folds back. The knob is
-/// the only hit target - everywhere else the overlay passes clicks through
-/// to the tracks underneath. The pointer's skim line is drawn here too, so
-/// it runs through every lane rather than just the clip strip.
+/// Full-height playhead drawn as one pin: a soft rounded head above the
+/// ruler whose underside flows into the stem through concave fillets. At
+/// rest the head is a small tab; hovered or dragged it widens into a
+/// readout of the time, then folds back. The head is the only hit target -
+/// everywhere else the overlay passes clicks through to the tracks
+/// underneath. The pointer's skim line is drawn here too, so it runs
+/// through every lane rather than just the clip strip.
 private struct StudioTimelinePlayhead: View {
     let time: TimeInterval
     let scale: StudioTimelineScale
@@ -553,13 +554,10 @@ private struct StudioTimelinePlayhead: View {
     @State private var isDragging = false
 
     private enum Metrics {
-        static let knobWidth: CGFloat = 10
-        static let knobHeight: CGFloat = 16
-        static let lineWidth: CGFloat = 2
-        static let hitWidth: CGFloat = 26
-        /// Rough width of the expanded time readout, for keeping it on screen.
-        static let readoutWidth: CGFloat = 54
-        /// How far the knob may overhang the lanes into the dock's margin.
+        static let headSize = CGSize(width: 17, height: 12)
+        static let readoutSize = CGSize(width: 56, height: 17)
+        static let hitSize = CGSize(width: 28, height: StudioTimelineMetrics.playheadLaneHeight + 4)
+        /// How far the head may overhang the lanes into the dock's margin.
         static let edgeOverhang: CGFloat = 12
     }
 
@@ -568,42 +566,56 @@ private struct StudioTimelinePlayhead: View {
     var body: some View {
         GeometryReader { proxy in
             let width = max(proxy.size.width, 1)
-            let headHeight = StudioTimelineMetrics.playheadLaneHeight
+            let laneHeight = StudioTimelineMetrics.playheadLaneHeight
             // Viewport space: the playhead overlay never scrolls, it just
             // tracks the scrolled lanes underneath it.
             let x = scale.x(for: time) - scrollX
-            let isVisible = x >= -Metrics.lineWidth && x <= width + Metrics.lineWidth
+            let isVisible = x >= -2 && x <= width + 2
             let isExpanded = isHovering || isDragging
-            let halfHead = (isExpanded ? Metrics.readoutWidth : Metrics.knobWidth) / 2
-            // The line stays on the true time; near either end the knob
+            let head = isExpanded ? Metrics.readoutSize : Metrics.headSize
+            // The stem stays on the true time; near either end the head
             // slides inward so its readout is never cut off.
             let headX = min(
-                max(x, halfHead - Metrics.edgeOverhang),
-                width - halfHead + Metrics.edgeOverhang
+                max(x, head.width / 2 - Metrics.edgeOverhang),
+                width - head.width / 2 + Metrics.edgeOverhang
             )
+            // The head hangs from the top of its lane, so the readout grows
+            // downward toward the ruler rather than off the dock.
+            let headTop = laneHeight - Metrics.headSize.height - 1
 
             ZStack(alignment: .topLeading) {
                 if showsSkim, let skimX, !isDragging {
                     Rectangle()
                         .fill(Color.primary.opacity(0.32))
-                        .frame(width: 1, height: max(0, proxy.size.height - headHeight))
-                        .offset(x: skimX - 0.5, y: headHeight)
+                        .frame(width: 1, height: max(0, proxy.size.height - laneHeight))
+                        .offset(x: skimX - 0.5, y: laneHeight)
                         .allowsHitTesting(false)
                 }
 
-                Capsule()
-                    .fill(Color.accentColor)
-                    .frame(
-                        width: Metrics.lineWidth,
-                        height: max(0, proxy.size.height - headHeight + 2)
-                    )
-                    .shadow(color: .black.opacity(0.25), radius: 1)
-                    .offset(x: x - Metrics.lineWidth / 2, y: headHeight - 2)
-                    .allowsHitTesting(false)
-                    .opacity(isVisible ? 1 : 0)
+                PlayheadPinShape(
+                    headHeight: head.height,
+                    stemOffset: x - headX
+                )
+                .fill(Color.accentColor)
+                .shadow(color: .black.opacity(0.28), radius: 1.5, y: 0.5)
+                .overlay {
+                    if isExpanded {
+                        Text(studioPreciseTimecode(time))
+                            .font(.system(size: 10, weight: .semibold).monospacedDigit())
+                            .foregroundStyle(.white)
+                            .fixedSize()
+                            .frame(width: head.width, height: head.height)
+                            .frame(maxHeight: .infinity, alignment: .top)
+                            .transition(AnyTransition(.blurReplace))
+                    }
+                }
+                .frame(width: head.width, height: max(0, proxy.size.height - headTop))
+                .offset(x: headX - head.width / 2, y: headTop)
+                .allowsHitTesting(false)
+                .opacity(isVisible ? 1 : 0)
 
-                head(isExpanded: isExpanded)
-                    .frame(width: isExpanded ? nil : Metrics.hitWidth, height: headHeight)
+                Color.clear
+                    .frame(width: max(Metrics.hitSize.width, head.width), height: Metrics.hitSize.height)
                     .contentShape(Rectangle())
                     .onHover { isHovering = $0 }
                     .pointerStyle(.columnResize)
@@ -620,43 +632,90 @@ private struct StudioTimelinePlayhead: View {
                             isDragging = false
                         }
                     )
-                    .position(x: headX, y: headHeight / 2)
-                    .opacity(isVisible ? 1 : 0)
+                    .position(x: headX, y: Metrics.hitSize.height / 2 - 2)
                     .allowsHitTesting(isVisible)
             }
         }
         .coordinateSpace(name: Self.coordinateSpace)
         .motion(.morphQuick, value: isHovering || isDragging)
     }
+}
 
-    private func head(isExpanded: Bool) -> some View {
-        ZStack {
-            if isExpanded {
-                Text(studioPreciseTimecode(time))
-                    .font(.system(size: 10, weight: .semibold).monospacedDigit())
-                    .foregroundStyle(.white)
-                    .fixedSize()
-                    .padding(.horizontal, 7)
-                    .transition(AnyTransition(.blurReplace))
-            } else {
-                Capsule()
-                    .fill(Color.white.opacity(0.9))
-                    .frame(width: 2, height: 6)
-                    .transition(AnyTransition(.blurReplace))
-            }
+/// A playhead pin in one outline: a rounded head across the top of the
+/// rect, a stem down to the bottom, and concave fillets where the head's
+/// underside meets the stem so the two read as a single soft piece. The
+/// stem can sit off the head's center, for when the head is nudged inward
+/// at the ends of the timeline.
+private struct PlayheadPinShape: Shape {
+    var headHeight: CGFloat
+    var stemOffset: CGFloat
+    var stemWidth: CGFloat = 2
+    var cornerRadius: CGFloat = 4
+    var filletRadius: CGFloat = 3.5
+
+    var animatableData: AnimatablePair<CGFloat, CGFloat> {
+        get { AnimatablePair(headHeight, stemOffset) }
+        set {
+            headHeight = newValue.first
+            stemOffset = newValue.second
         }
-        .frame(minWidth: Metrics.knobWidth, minHeight: Metrics.knobHeight)
-        .frame(height: Metrics.knobHeight)
-        .background {
-            Capsule()
-                .fill(Color.accentColor)
-                .shadow(color: .black.opacity(0.28), radius: 1.5, y: 0.5)
-        }
-        .overlay {
-            Capsule()
-                .strokeBorder(Color.white.opacity(0.28), lineWidth: 0.5)
-        }
-        .fixedSize()
+    }
+
+    func path(in rect: CGRect) -> Path {
+        let head = min(headHeight, rect.height)
+        let corner = min(cornerRadius, head / 2, rect.width / 2)
+        let halfStem = stemWidth / 2
+        let stemX = min(
+            max(rect.midX + stemOffset, rect.minX + corner + halfStem),
+            rect.maxX - corner - halfStem
+        )
+        // The fillet can't reach past the head's own rounded corners.
+        let fillet = max(0, min(
+            filletRadius,
+            stemX - halfStem - (rect.minX + corner),
+            rect.maxX - corner - (stemX + halfStem),
+            rect.height - head
+        ))
+        let headBottom = rect.minY + head
+
+        var path = Path()
+        path.move(to: CGPoint(x: rect.minX + corner, y: rect.minY))
+        path.addArc(
+            tangent1End: CGPoint(x: rect.maxX, y: rect.minY),
+            tangent2End: CGPoint(x: rect.maxX, y: headBottom),
+            radius: corner
+        )
+        path.addArc(
+            tangent1End: CGPoint(x: rect.maxX, y: headBottom),
+            tangent2End: CGPoint(x: stemX + halfStem, y: headBottom),
+            radius: corner
+        )
+        // Underside into the stem's right edge, curving down.
+        path.addArc(
+            tangent1End: CGPoint(x: stemX + halfStem, y: headBottom),
+            tangent2End: CGPoint(x: stemX + halfStem, y: rect.maxY),
+            radius: fillet
+        )
+        path.addLine(to: CGPoint(x: stemX + halfStem, y: rect.maxY))
+        path.addLine(to: CGPoint(x: stemX - halfStem, y: rect.maxY))
+        // Back up the stem's left edge and out along the underside.
+        path.addArc(
+            tangent1End: CGPoint(x: stemX - halfStem, y: headBottom),
+            tangent2End: CGPoint(x: rect.minX, y: headBottom),
+            radius: fillet
+        )
+        path.addArc(
+            tangent1End: CGPoint(x: rect.minX, y: headBottom),
+            tangent2End: CGPoint(x: rect.minX, y: rect.minY),
+            radius: corner
+        )
+        path.addArc(
+            tangent1End: CGPoint(x: rect.minX, y: rect.minY),
+            tangent2End: CGPoint(x: rect.maxX, y: rect.minY),
+            radius: corner
+        )
+        path.closeSubpath()
+        return path
     }
 }
 
