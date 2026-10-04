@@ -4,7 +4,8 @@
 //
 //  The pre-record mode of the floating bar. "Record" anywhere in the app
 //  brings the bar up at the bottom of the active screen; it picks the source
-//  (display / window / area) and toggles the capture inputs (camera,
+//  (display / window by pointing at it - RecordingSourceTargetPresenter - or
+//  area by dragging) and toggles the capture inputs (camera,
 //  microphone, system audio) for the next recording, then hands off to
 //  CaptureCoordinator - at which point the same bar morphs into the in-session
 //  controls (RecordingControlPresenter). Clicks and keystrokes are always
@@ -39,6 +40,7 @@ extension RecordingBarPresenter {
 
 struct RecordingPickerControls: View {
     @State private var sources = RecordingSourceCatalog.shared
+    @State private var target = RecordingSourceTargetPresenter.shared
     @AppStorage(ScreendropPreferences.recordingCameraDeviceIDKey) private var cameraID = ""
     @AppStorage(ScreendropPreferences.recordingMicrophoneDeviceIDKey) private var microphoneID = ""
     @AppStorage(ScreendropPreferences.recordingSystemAudioKey) private var systemAudio = false
@@ -155,43 +157,32 @@ struct RecordingPickerControls: View {
             .buttonStyle(BarButtonStyle())
             .menuIndicator(.hidden)
             .accessibilityLabel("Recording sources unavailable - retry or open permissions")
-        } else if sources.displays.count > 1 {
-            Menu {
-                ForEach(Array(sources.displays.enumerated()), id: \.element.displayID) { index, display in
-                    Button(RecordingSourceCatalog.displayTitle(display, index: index)) {
-                        startRecording {
-                            CaptureCoordinator.shared.recordFullscreen(display)
-                        }
-                    }
-                }
-            } label: {
-                BarActionLabel(
-                    id: .display,
-                    title: "Pick a screen to record",
-                    systemImage: "menubar.rectangle"
-                )
-            }
-            .menuStyle(.button)
-            .buttonStyle(BarButtonStyle())
-            .menuIndicator(.hidden)
-            .accessibilityLabel("Display - choose which screen to record")
         } else {
             BarActionButton(
                 id: .display,
-                title: "Record the whole screen",
+                title: "Point at a screen to record",
                 systemImage: "menubar.rectangle",
-                accessibility: "Display - record the whole screen"
+                isSelected: target.mode == .display,
+                accessibility: "Display - point at the screen to record, then click it"
             ) {
-                guard let display = sources.displays.first else { return }
-                startRecording {
-                    CaptureCoordinator.shared.recordFullscreen(display)
-                }
+                target.toggle(.display)
             }
         }
     }
 
+    /// The window list stays one right-click away, for anyone who'd rather
+    /// pick by name than by pointing.
     private var windowSource: some View {
-        Menu {
+        BarActionButton(
+            id: .window,
+            title: "Point at a window to record",
+            systemImage: "macwindow",
+            isSelected: target.mode == .window,
+            accessibility: "Window - point at the window to record, then click it"
+        ) {
+            target.toggle(.window)
+        }
+        .contextMenu {
             if let errorMessage = sources.errorMessage {
                 Text("Could not load windows: \(errorMessage)")
             } else if sources.windows.isEmpty {
@@ -199,30 +190,13 @@ struct RecordingPickerControls: View {
             }
             ForEach(sources.windows, id: \.windowID) { window in
                 Button(RecordingSourceCatalog.windowTitle(window)) {
+                    target.cancel()
                     startRecording {
                         CaptureCoordinator.shared.recordWindow(window)
                     }
                 }
             }
-
-            Divider()
-
-            Button("Refresh Windows") {
-                Task {
-                    await sources.refresh()
-                }
-            }
-        } label: {
-            BarActionLabel(
-                id: .window,
-                title: "Pick an app window",
-                systemImage: "macwindow"
-            )
         }
-        .menuStyle(.button)
-        .buttonStyle(BarButtonStyle())
-        .menuIndicator(.hidden)
-        .accessibilityLabel("Window - choose an app window to record")
     }
 
     private func startAreaRecording() {
@@ -232,6 +206,7 @@ struct RecordingPickerControls: View {
         // Area is the one source that can't morph: the bar has to get out of
         // the way of the selection overlay, so it leaves and comes back as the
         // session controls.
+        target.cancel()
         RecordingBarPresenter.shared.hide()
         CaptureCoordinator.shared.recordArea(display)
     }

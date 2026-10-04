@@ -81,6 +81,7 @@ final class RecordingBarPresenter {
         let panel = panel ?? makePanel()
         PreviewWindowCaptureExclusion.shared.register(window: panel)
         TeleprompterComposerPresenter.shared.hide()
+        RecordingSourceTargetPresenter.shared.cancel()
 
         let isMorphing = panel.isVisible && isPositioned(panel, onDisplayID: displayID)
         if isMorphing {
@@ -97,6 +98,7 @@ final class RecordingBarPresenter {
 
     func hide() {
         if mode == .picker { CaptureCountdownPresenter.shared.cancel() }
+        RecordingSourceTargetPresenter.shared.cancel()
         // `orderOut` sends no exit events, so a hover that's live when the
         // bar hides has to be ended by hand - it holds the pointing hand.
         BarControlHoverView.endActiveHover()
@@ -240,6 +242,12 @@ private final class RecordingBarPanel: NSPanel {
         // Escape backs out of picking a source; it must not abandon a
         // recording that's already running.
         guard RecordingBarPresenter.shared.mode == .picker else { return }
+        // First Esc puts away the point-to-pick sheet; the next one closes
+        // the bar.
+        if RecordingSourceTargetPresenter.shared.isActive {
+            RecordingSourceTargetPresenter.shared.cancel()
+            return
+        }
         RecordingBarPresenter.shared.hide()
         Task { await CameraRecordingManager.shared.stopPreview() }
     }

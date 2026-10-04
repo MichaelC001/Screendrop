@@ -218,6 +218,9 @@ struct BarActionLabel: View {
     let title: String
     let systemImage: String
     var tint: Color = BarMetrics.activeTint
+    /// Holds the hover puck on while the control's mode is engaged - the
+    /// Display or Window pick sheet being up.
+    var isSelected = false
 
     @Environment(\.isEnabled) private var isEnabled
     @Environment(BarTooltipModel.self) private var tooltip: BarTooltipModel?
@@ -238,9 +241,10 @@ struct BarActionLabel: View {
                         width: BarMetrics.hoverDiameter,
                         height: BarMetrics.hoverDiameter
                     )
-                    .opacity(isHovering ? 1 : 0)
+                    .opacity(isHovering || isSelected ? 1 : 0)
             }
             .animation(.easeOut(duration: 0.12), value: isHovering)
+            .animation(.easeOut(duration: 0.12), value: isSelected)
             .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             // One of two cursor paths, for the two states the bar lives in.
             // While Screendrop is the active app the system's pointer-style
@@ -302,6 +306,7 @@ struct BarActionButton: View {
     let title: String
     let systemImage: String
     var tint: Color = BarMetrics.activeTint
+    var isSelected = false
     /// Only worth setting where the tooltip leaves something out - the device
     /// a control is bound to, what a destructive action destroys.
     var accessibility: String?
@@ -314,7 +319,7 @@ struct BarActionButton: View {
             tooltip?.dismiss()
             action()
         } label: {
-            BarActionLabel(id: id, title: title, systemImage: systemImage, tint: tint)
+            BarActionLabel(id: id, title: title, systemImage: systemImage, tint: tint, isSelected: isSelected)
         }
         .buttonStyle(BarButtonStyle())
         .accessibilityLabel(accessibility ?? title)
