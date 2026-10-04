@@ -37,6 +37,10 @@ struct RecordingEditDocument: Codable, Equatable {
     var showsClickEffects: Bool?
     var showsKeystrokes: Bool?
     var keystrokePlacement: RecordingKeystrokePlacement?
+    /// The "2× ›››" badge over sped-up clips. Opt-in: projects saved before
+    /// it existed, and new ones, decode with it off.
+    var showsSpeedBadge: Bool?
+    var speedBadgePlacement: RecordingKeystrokePlacement?
     /// Optional so projects saved before transcription decode with no
     /// subtitles and the toggle defaulting on.
     var showsSubtitles: Bool?
@@ -76,6 +80,8 @@ struct RecordingEditDocument: Codable, Equatable {
         case showsClickEffects
         case showsKeystrokes
         case keystrokePlacement
+        case showsSpeedBadge
+        case speedBadgePlacement
         case showsSubtitles
         case subtitleCues
         case subtitleWords
@@ -104,6 +110,8 @@ struct RecordingEditDocument: Codable, Equatable {
         showsClickEffects: Bool? = nil,
         showsKeystrokes: Bool? = nil,
         keystrokePlacement: RecordingKeystrokePlacement? = nil,
+        showsSpeedBadge: Bool? = nil,
+        speedBadgePlacement: RecordingKeystrokePlacement? = nil,
         showsSubtitles: Bool? = nil,
         subtitleCues: [RecordingSubtitleCue]? = nil,
         subtitleWords: [RecordingTranscriptWord]? = nil,
@@ -132,6 +140,8 @@ struct RecordingEditDocument: Codable, Equatable {
         self.showsClickEffects = showsClickEffects
         self.showsKeystrokes = showsKeystrokes
         self.keystrokePlacement = keystrokePlacement
+        self.showsSpeedBadge = showsSpeedBadge
+        self.speedBadgePlacement = speedBadgePlacement
         self.showsSubtitles = showsSubtitles
         self.subtitleCues = subtitleCues
         self.subtitleWords = subtitleWords
@@ -201,6 +211,11 @@ struct RecordingEditDocument: Codable, Equatable {
             RecordingKeystrokePlacement.self,
             forKey: .keystrokePlacement
         )
+        showsSpeedBadge = try container.decodeIfPresent(Bool.self, forKey: .showsSpeedBadge)
+        speedBadgePlacement = try container.decodeIfPresent(
+            RecordingKeystrokePlacement.self,
+            forKey: .speedBadgePlacement
+        )
         showsSubtitles = try container.decodeIfPresent(Bool.self, forKey: .showsSubtitles)
         subtitleCues = try container.decodeIfPresent(
             [RecordingSubtitleCue].self,
@@ -245,6 +260,8 @@ struct RecordingEditDocument: Codable, Equatable {
         try container.encodeIfPresent(showsClickEffects, forKey: .showsClickEffects)
         try container.encodeIfPresent(showsKeystrokes, forKey: .showsKeystrokes)
         try container.encodeIfPresent(keystrokePlacement, forKey: .keystrokePlacement)
+        try container.encodeIfPresent(showsSpeedBadge, forKey: .showsSpeedBadge)
+        try container.encodeIfPresent(speedBadgePlacement, forKey: .speedBadgePlacement)
         try container.encodeIfPresent(showsSubtitles, forKey: .showsSubtitles)
         try container.encodeIfPresent(subtitleCues, forKey: .subtitleCues)
         try container.encodeIfPresent(subtitleWords, forKey: .subtitleWords)

@@ -564,6 +564,15 @@ private struct StudioCanvasComposition: View {
                             )
                         }
                     }
+                    .overlay {
+                        if let badge = model.speedBadge(at: model.displayTime) {
+                            StudioSpeedBadgeView(
+                                badge: badge,
+                                placement: model.speedBadgePlacement,
+                                cardSize: layout.cardRect.size
+                            )
+                        }
+                    }
                     .shadow(
                         color: .black.opacity(model.style.background == .none ? 0 : 0.55 * model.style.shadow),
                         radius: min(canvasSize.width, canvasSize.height) * 0.045 * model.style.shadow,
@@ -966,6 +975,61 @@ private struct StudioKeystrokeCaptionView: View {
             .padding(metrics.margin)
             .frame(width: cardSize.width, height: cardSize.height)
             .allowsHitTesting(false)
+    }
+}
+
+/// The "2× ›››" badge over a sped-up clip. Geometry comes from
+/// SpeedBadgeMetrics and its animation from the editor time, so the exporter
+/// draws the identical badge on the identical frame.
+private struct StudioSpeedBadgeView: View {
+    let badge: SpeedBadgeFrame
+    let placement: RecordingKeystrokePlacement
+    let cardSize: CGSize
+
+    var body: some View {
+        let metrics = SpeedBadgeMetrics(cardHeight: cardSize.height)
+
+        HStack(spacing: metrics.textGap) {
+            Text(badge.title)
+                .font(.system(size: metrics.fontSize, weight: .semibold, design: .rounded))
+                .foregroundStyle(.white)
+                .lineLimit(1)
+                .fixedSize()
+
+            Canvas { context, size in
+                for index in 0..<SpeedBadgeMetrics.chevronCount {
+                    let path = Path(metrics.chevronPath(
+                        minX: metrics.chevronLineWidth / 2 + metrics.chevronAdvance * CGFloat(index),
+                        midY: size.height / 2
+                    ))
+                    context.stroke(
+                        path,
+                        with: .color(.white.opacity(badge.chevronAlpha(index))),
+                        style: StrokeStyle(
+                            lineWidth: metrics.chevronLineWidth,
+                            lineCap: .round,
+                            lineJoin: .round
+                        )
+                    )
+                }
+            }
+            .frame(
+                width: metrics.chevronsWidth + metrics.chevronLineWidth,
+                height: metrics.chevronHeight + metrics.chevronLineWidth
+            )
+        }
+        .padding(.horizontal, metrics.paddingHorizontal)
+        .padding(.vertical, metrics.paddingVertical)
+        .background(
+            RoundedRectangle(cornerRadius: metrics.cornerRadius, style: .continuous)
+                .fill(.black.opacity(SpeedBadgeMetrics.backgroundAlpha))
+        )
+        .scaleEffect(badge.scale)
+        .opacity(badge.opacity)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: placement.alignment)
+        .padding(metrics.margin)
+        .frame(width: cardSize.width, height: cardSize.height)
+        .allowsHitTesting(false)
     }
 }
 

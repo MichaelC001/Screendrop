@@ -196,7 +196,7 @@ struct StudioInspector: View {
         }
 
         // Text
-        if model.canTranscribe || model.hasSubtitles || model.hasKeystrokes {
+        if model.canTranscribe || model.hasSubtitles || model.hasKeystrokes || model.hasSpedUpClips {
             StudioGroupBreak()
         }
 
@@ -208,6 +208,14 @@ struct StudioInspector: View {
             StudioSection("Keystrokes", isOn: $model.showsKeystrokes, toggleTitle: "Show keystrokes") {
                 keystrokeControls
             }
+        }
+
+        // Only offered once some clip actually plays faster than recorded.
+        if model.hasSpedUpClips {
+            StudioSection("Speed Badge", isOn: $model.showsSpeedBadge, toggleTitle: "Show speed badge") {
+                speedBadgeControls
+            }
+            .transition(AnyTransition(.blurReplace).combined(with: .opacity))
         }
 
         // Sound
@@ -618,6 +626,21 @@ struct StudioInspector: View {
                     }
                 )
                 .help("Audio speeds up with the clip")
+
+                if clip.speed > 1.001 {
+                    InspectorToggleRow(
+                        "Show speed badge",
+                        isOn: Binding(
+                            get: { model.showsSpeedBadge },
+                            set: { value in
+                                withAnimation(.morphIfAllowed) { model.showsSpeedBadge = value }
+                            }
+                        )
+                    )
+                    .padding(.top, InspectorMetrics.rowSpacing - InspectorMetrics.groupLabelSpacing)
+                    .help("Applies to every sped-up clip; set its position under Speed Badge")
+                    .transition(AnyTransition(.blurReplace).combined(with: .opacity))
+                }
             }
         }
     }
@@ -645,6 +668,30 @@ struct StudioInspector: View {
             }
         }
         .help("Shortcuts you pressed while recording appear as a caption")
+    }
+
+    private var speedBadgeControls: some View {
+        VStack(alignment: .leading, spacing: InspectorMetrics.rowSpacing) {
+            InspectorRow("Top") {
+                placementRow([.topLeft, .topCenter, .topRight], selection: $model.speedBadgePlacement)
+            }
+            InspectorRow("Bottom") {
+                placementRow([.bottomLeft, .bottomCenter, .bottomRight], selection: $model.speedBadgePlacement)
+            }
+        }
+        .help("Sped-up clips carry a “2× ›››” badge while they play")
+    }
+
+    private func placementRow(
+        _ options: [RecordingKeystrokePlacement],
+        selection: Binding<RecordingKeystrokePlacement>
+    ) -> some View {
+        InspectorSegmented(
+            options: options,
+            isSelected: { $0 == selection.wrappedValue },
+            onTap: { selection.wrappedValue = $0 },
+            label: { Text($0.title).font(.inspectorSegment) }
+        )
     }
 
     private func keystrokePlacementRow(

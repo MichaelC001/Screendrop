@@ -234,3 +234,157 @@ nonisolated struct KeystrokeCaptionMetrics: Sendable {
         return CGPoint(x: x, y: y)
     }
 }
+
+// MARK: - Speed badge
+
+/// What the speed badge shows at a single point in time.
+nonisolated struct SpeedBadgeFrame: Sendable, Equatable {
+    let speed: Double
+    /// Entrance and exit, 0...1: drives opacity and a small scale-in.
+    let presence: Double
+    /// Editor time, which paces the chevrons' sweep so the preview and the
+    /// export animate identically.
+    let time: TimeInterval
+
+    var opacity: Double { presence }
+    var scale: Double { 0.85 + 0.15 * presence }
+
+    var title: String { RecordingClipSegment.speedTitle(speed) }
+
+    /// Brightness of chevron `index` (0 = leftmost): a highlight sweeps
+    /// left to right through the three, then rests, then sweeps again.
+    func chevronAlpha(_ index: Int) -> Double {
+        let phase = time / SpeedBadgeMetrics.sweepPeriod
+        var local = (phase - Double(index) * 0.2).truncatingRemainder(dividingBy: 1)
+        if local < 0 { local += 1 }
+        let window = 0.45
+        let bump = local < window ? sin(.pi * local / window) : 0
+        return 0.32 + 0.68 * bump
+    }
+}
+
+/// Where sped-up clips sit on the edited timeline. Neighbouring clips at the
+/// same speed merge into one span, so a split doesn't make the badge blink.
+nonisolated struct SpeedBadgeTimeline: Sendable, Equatable {
+    struct Span: Sendable, Equatable {
+        var start: TimeInterval
+        var end: TimeInterval
+        let speed: Double
+    }
+
+    static let empty = SpeedBadgeTimeline(spans: [])
+
+    /// Ramp in at the start of a span, and out before its end.
+    private static let fadeIn: TimeInterval = 0.22
+    private static let fadeOut: TimeInterval = 0.18
+
+    let spans: [Span]
+
+    var isEmpty: Bool { spans.isEmpty }
+
+    private init(spans: [Span]) {
+        self.spans = spans
+    }
+
+    init(clipTimeline: RecordingClipTimeline) {
+        var spans: [Span] = []
+        var cursor: TimeInterval = 0
+        for segment in clipTimeline.segments {
+            let length = segment.editorDuration
+            defer { cursor += length }
+            guard segment.speed > 1.001, length > 0 else { continue }
+            if var last = spans.last,
+               abs(last.speed - segment.speed) < 0.001,
+               abs(last.end - cursor) < 0.0001 {
+                last.end = cursor + length
+                spans[spans.count - 1] = last
+            } else {
+                spans.append(Span(start: cursor, end: cursor + length, speed: segment.speed))
+            }
+        }
+        self.spans = spans
+    }
+
+    func frame(at time: TimeInterval) -> SpeedBadgeFrame? {
+        guard let span = spans.first(where: { time >= $0.start && time < $0.end }) else {
+            return nil
+        }
+        let entering = (time - span.start) / Self.fadeIn
+        let leaving = (span.end - time) / Self.fadeOut
+        let linear = min(max(min(entering, leaving), 0), 1)
+        // Smoothstep, so the entrance eases rather than snapping on.
+        let presence = linear * linear * (3 - 2 * linear)
+        return SpeedBadgeFrame(speed: span.speed, presence: presence, time: time)
+    }
+}
+
+/// Geometry shared verbatim by the SwiftUI preview and the CoreGraphics
+/// exporter: a caption-style pill reading "2×" followed by three chevrons.
+/// Everything derives from the card's height, like the keystroke caption.
+nonisolated struct SpeedBadgeMetrics: Sendable {
+    static let backgroundAlpha = KeystrokeCaptionMetrics.backgroundAlpha
+    static let sweepPeriod: TimeInterval = 0.9
+
+    let fontSize: CGFloat
+    let paddingHorizontal: CGFloat
+    let paddingVertical: CGFloat
+    let cornerRadius: CGFloat
+    let margin: CGFloat
+    /// Gap between the "2×" and the first chevron.
+    let textGap: CGFloat
+    let chevronWidth: CGFloat
+    let chevronHeight: CGFloat
+    /// Advance from one chevron to the next.
+    let chevronAdvance: CGFloat
+    let chevronLineWidth: CGFloat
+
+    static let chevronCount = 3
+
+    init(cardHeight: CGFloat) {
+        let caption = KeystrokeCaptionMetrics(cardHeight: cardHeight)
+        fontSize = caption.fontSize
+        paddingHorizontal = caption.paddingHorizontal
+        paddingVertical = caption.paddingVertical
+        cornerRadius = caption.cornerRadius
+        margin = caption.margin
+        textGap = fontSize * 0.42
+        chevronHeight = fontSize * 0.62
+        chevronWidth = chevronHeight * 0.5
+        chevronAdvance = chevronWidth + fontSize * 0.14
+        chevronLineWidth = max(1, fontSize * 0.13)
+    }
+
+    /// Width of the three chevrons, outer edge to outer edge.
+    var chevronsWidth: CGFloat {
+        chevronAdvance * CGFloat(Self.chevronCount - 1) + chevronWidth
+    }
+
+    func badgeWidth(textWidth: CGFloat) -> CGFloat {
+        paddingHorizontal * 2 + textWidth + textGap + chevronsWidth
+    }
+
+    /// One open chevron pointing right, its left edge at `minX`, centered
+    /// on `midY`. The same path serves both coordinate systems because it
+    /// is symmetric top to bottom.
+    func chevronPath(minX: CGFloat, midY: CGFloat) -> CGPath {
+        let path = CGMutablePath()
+        path.move(to: CGPoint(x: minX, y: midY - chevronHeight / 2))
+        path.addLine(to: CGPoint(x: minX + chevronWidth, y: midY))
+        path.addLine(to: CGPoint(x: minX, y: midY + chevronHeight / 2))
+        return path
+    }
+
+    /// Top-left origin of the badge inside `cardRect`, pinned to the card's
+    /// edge the same way the keystroke caption is.
+    func badgeOrigin(
+        badgeSize: CGSize,
+        cardRect: CGRect,
+        placement: RecordingKeystrokePlacement
+    ) -> CGPoint {
+        KeystrokeCaptionMetrics(cardHeight: cardRect.height).pillOrigin(
+            pillSize: badgeSize,
+            cardRect: cardRect,
+            placement: placement
+        )
+    }
+}

@@ -42,6 +42,9 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
         /// Non-nil when recorded keystroke chords should be captioned.
         let keystrokeTimeline: KeystrokeCaptionTimeline?
         let keystrokePlacement: RecordingKeystrokePlacement
+        /// Non-nil when sped-up clips should carry the "2× ›››" badge.
+        let speedBadgeTimeline: SpeedBadgeTimeline?
+        let speedBadgePlacement: RecordingKeystrokePlacement
         /// Non-nil when transcribed narration should be subtitled.
         let subtitleTimeline: SubtitleTimeline?
         let subtitleStyle: SubtitleBarStyle
@@ -77,6 +80,8 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
             showsPressEffects: Bool,
             keystrokeTimeline: KeystrokeCaptionTimeline?,
             keystrokePlacement: RecordingKeystrokePlacement,
+            speedBadgeTimeline: SpeedBadgeTimeline? = nil,
+            speedBadgePlacement: RecordingKeystrokePlacement = .topRight,
             subtitleTimeline: SubtitleTimeline?,
             subtitleStyle: SubtitleBarStyle,
             karaokeTimeline: KaraokeTimeline? = nil,
@@ -99,6 +104,8 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
             self.showsPressEffects = showsPressEffects
             self.keystrokeTimeline = keystrokeTimeline
             self.keystrokePlacement = keystrokePlacement
+            self.speedBadgeTimeline = speedBadgeTimeline
+            self.speedBadgePlacement = speedBadgePlacement
             self.subtitleTimeline = subtitleTimeline
             self.subtitleStyle = subtitleStyle
             self.karaokeTimeline = karaokeTimeline
@@ -336,6 +343,8 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
             showsPressEffects: configuration.showsPressEffects,
             keystrokeTimeline: configuration.keystrokeTimeline,
             keystrokePlacement: configuration.keystrokePlacement,
+            speedBadgeTimeline: configuration.speedBadgeTimeline,
+            speedBadgePlacement: configuration.speedBadgePlacement,
             subtitleTimeline: configuration.subtitleTimeline,
             subtitleStyle: configuration.subtitleStyle,
             karaokeTimeline: configuration.karaokeTimeline,
@@ -663,6 +672,8 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
     private let showsPressEffects: Bool
     private let keystrokeTimeline: KeystrokeCaptionTimeline?
     private let keystrokePlacement: RecordingKeystrokePlacement
+    private let speedBadgeTimeline: SpeedBadgeTimeline?
+    private let speedBadgePlacement: RecordingKeystrokePlacement
     private let subtitleTimeline: SubtitleTimeline?
     private let subtitleStyle: SubtitleBarStyle
     private let karaokeTimeline: KaraokeTimeline?
@@ -698,6 +709,8 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
         showsPressEffects: Bool,
         keystrokeTimeline: KeystrokeCaptionTimeline?,
         keystrokePlacement: RecordingKeystrokePlacement,
+        speedBadgeTimeline: SpeedBadgeTimeline? = nil,
+        speedBadgePlacement: RecordingKeystrokePlacement = .topRight,
         subtitleTimeline: SubtitleTimeline?,
         subtitleStyle: SubtitleBarStyle = SubtitleBarStyle(),
         karaokeTimeline: KaraokeTimeline? = nil,
@@ -723,6 +736,8 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
         self.showsPressEffects = showsPressEffects
         self.keystrokeTimeline = keystrokeTimeline
         self.keystrokePlacement = keystrokePlacement
+        self.speedBadgeTimeline = speedBadgeTimeline
+        self.speedBadgePlacement = speedBadgePlacement
         self.subtitleTimeline = subtitleTimeline
         self.subtitleStyle = subtitleStyle
         self.karaokeTimeline = karaokeTimeline
@@ -897,6 +912,10 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
         // The keystroke caption stays in card space - pinned to its edge and
         // unaffected by the zoom transform, like a broadcast lower third.
         drawKeystrokeCaption(at: sourceTime, in: context)
+
+        // The speed badge is card-space chrome too, paced by editor time
+        // so its chevrons sweep at the same rate as the preview's.
+        drawSpeedBadge(at: editorTime, in: context)
 
         if let cameraFrame, layout.bubbleRect.width > 0 {
             drawCameraBubble(cameraFrame, in: context)
@@ -1218,6 +1237,74 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
             y: pillRect.midY - (ascent - descent) / 2
         )
         CTLineDraw(line, context)
+        context.restoreGState()
+    }
+
+    private func drawSpeedBadge(at time: TimeInterval, in context: CGContext) {
+        guard let speedBadgeTimeline,
+              let badge = speedBadgeTimeline.frame(at: time),
+              badge.opacity > 0.001 else {
+            return
+        }
+
+        let metrics = SpeedBadgeMetrics(cardHeight: layout.cardRect.height)
+        let font = Self.captionFont(size: metrics.fontSize)
+        let line = CTLineCreateWithAttributedString(NSAttributedString(string: badge.title, attributes: [
+            NSAttributedString.Key(kCTFontAttributeName as String): font,
+            NSAttributedString.Key(kCTForegroundColorAttributeName as String): CGColor(gray: 1, alpha: 1)
+        ]))
+        var ascent: CGFloat = 0
+        var descent: CGFloat = 0
+        var leading: CGFloat = 0
+        let textWidth = CGFloat(CTLineGetTypographicBounds(line, &ascent, &descent, &leading))
+        guard textWidth > 0 else { return }
+
+        let badgeSize = CGSize(
+            width: metrics.badgeWidth(textWidth: textWidth),
+            height: ascent + descent + metrics.paddingVertical * 2
+        )
+        let origin = metrics.badgeOrigin(
+            badgeSize: badgeSize,
+            cardRect: layout.cardRect,
+            placement: speedBadgePlacement
+        )
+        let badgeRect = flipped(CGRect(origin: origin, size: badgeSize))
+
+        context.saveGState()
+        context.setAlpha(CGFloat(badge.opacity))
+        context.translateBy(x: badgeRect.midX, y: badgeRect.midY)
+        context.scaleBy(x: CGFloat(badge.scale), y: CGFloat(badge.scale))
+        context.translateBy(x: -badgeRect.midX, y: -badgeRect.midY)
+
+        let radius = min(metrics.cornerRadius, badgeRect.height / 2)
+        context.addPath(CGPath(
+            roundedRect: badgeRect,
+            cornerWidth: radius,
+            cornerHeight: radius,
+            transform: nil
+        ))
+        context.setFillColor(CGColor(gray: 0, alpha: SpeedBadgeMetrics.backgroundAlpha))
+        context.fillPath()
+
+        context.textMatrix = .identity
+        context.textPosition = CGPoint(
+            x: badgeRect.minX + metrics.paddingHorizontal,
+            y: badgeRect.midY - (ascent - descent) / 2
+        )
+        CTLineDraw(line, context)
+
+        context.setLineWidth(metrics.chevronLineWidth)
+        context.setLineCap(.round)
+        context.setLineJoin(.round)
+        let firstChevronX = badgeRect.minX + metrics.paddingHorizontal + textWidth + metrics.textGap
+        for index in 0..<SpeedBadgeMetrics.chevronCount {
+            context.addPath(metrics.chevronPath(
+                minX: firstChevronX + metrics.chevronAdvance * CGFloat(index),
+                midY: badgeRect.midY
+            ))
+            context.setStrokeColor(CGColor(gray: 1, alpha: CGFloat(badge.chevronAlpha(index))))
+            context.strokePath()
+        }
         context.restoreGState()
     }
 

@@ -160,6 +160,10 @@ enum RecordingSessionRenderer {
                 ? KeystrokeCaptionTimeline(events: capture.keystrokes)
                 : nil,
             keystrokePlacement: document?.keystrokePlacement ?? .bottomCenter,
+            speedBadgeTimeline: document?.showsSpeedBadge == true
+                ? SpeedBadgeTimeline(clipTimeline: clipTimeline)
+                : nil,
+            speedBadgePlacement: document?.speedBadgePlacement ?? .topRight,
             subtitleTimeline: showsSubtitles && !cues.isEmpty
                 ? SubtitleTimeline(cues: cues)
                 : nil,

@@ -105,6 +105,13 @@ final class RecordingStudioModel {
     var keystrokePlacement: RecordingKeystrokePlacement = .bottomCenter {
         didSet { scheduleProjectSave() }
     }
+    /// The "2× ›››" badge over sped-up clips; off unless asked for.
+    var showsSpeedBadge = false {
+        didSet { scheduleProjectSave() }
+    }
+    var speedBadgePlacement: RecordingKeystrokePlacement = .topRight {
+        didSet { scheduleProjectSave() }
+    }
     var showsSubtitles = true {
         didSet { scheduleProjectSave() }
     }
@@ -158,7 +165,15 @@ final class RecordingStudioModel {
     private(set) var pointerTimeline = PointerTimeline.empty
     private(set) var keystrokeTimeline = KeystrokeCaptionTimeline.empty
     var selectedCueID: UUID?
-    private(set) var clipTimeline = RecordingClipTimeline(segments: [])
+    private(set) var clipTimeline = RecordingClipTimeline(segments: []) {
+        didSet {
+            if clipTimeline != oldValue {
+                speedBadgeTimeline = SpeedBadgeTimeline(clipTimeline: clipTimeline)
+            }
+        }
+    }
+    /// Where the cut plays faster than recorded, for the speed badge.
+    private(set) var speedBadgeTimeline = SpeedBadgeTimeline.empty
     var selectedClipID: UUID?
     var timelineHoverTime: TimeInterval?
     /// Storyboard tiles for the clip lane, sampled on demand at whatever
@@ -445,6 +460,8 @@ final class RecordingStudioModel {
         showsClickEffects = document.showsClickEffects ?? showsClickEffects
         showsKeystrokes = document.showsKeystrokes ?? true
         keystrokePlacement = document.keystrokePlacement ?? .bottomCenter
+        showsSpeedBadge = document.showsSpeedBadge ?? false
+        speedBadgePlacement = document.speedBadgePlacement ?? .topRight
         showsSubtitles = document.showsSubtitles ?? true
         subtitleCues = document.subtitleCues ?? []
         subtitleTimeline = SubtitleTimeline(cues: subtitleCues)
@@ -1160,6 +1177,10 @@ final class RecordingStudioModel {
             showsClickEffects: showsClickEffects,
             showsKeystrokes: showsKeystrokes,
             keystrokePlacement: keystrokePlacement,
+            // Written only when they differ from the defaults, so projects
+            // that never touch the badge stay byte-identical on disk.
+            showsSpeedBadge: showsSpeedBadge ? true : nil,
+            speedBadgePlacement: speedBadgePlacement == .topRight ? nil : speedBadgePlacement,
             showsSubtitles: showsSubtitles,
             subtitleCues: subtitleCues.isEmpty ? nil : subtitleCues,
             subtitleWords: transcriptWords.isEmpty ? nil : transcriptWords,
@@ -1641,6 +1662,16 @@ final class RecordingStudioModel {
     }
 
     /// Caption to draw over the card right now; nil when hidden or silent.
+    /// Whether any clip plays faster than recorded.
+    var hasSpedUpClips: Bool {
+        !speedBadgeTimeline.isEmpty
+    }
+
+    func speedBadge(at time: TimeInterval) -> SpeedBadgeFrame? {
+        guard showsSpeedBadge else { return nil }
+        return speedBadgeTimeline.frame(at: time)
+    }
+
     func keystrokeCaption(at time: TimeInterval) -> KeystrokeCaptionFrame? {
         guard showsKeystrokes, hasKeystrokes else { return nil }
         return keystrokeTimeline.frame(at: clipTimeline.sourceTime(at: time))
@@ -1775,6 +1806,8 @@ final class RecordingStudioModel {
             showsPressEffects: showsPressEffects,
             keystrokeTimeline: showsKeystrokes && hasKeystrokes ? keystrokeTimeline : nil,
             keystrokePlacement: keystrokePlacement,
+            speedBadgeTimeline: showsSpeedBadge && !speedBadgeTimeline.isEmpty ? speedBadgeTimeline : nil,
+            speedBadgePlacement: speedBadgePlacement,
             subtitleTimeline: showsSubtitles && hasSubtitles ? subtitleTimeline : nil,
             subtitleStyle: subtitleStyle,
             karaokeTimeline: showsSubtitles && hasSubtitles && !karaokeTimeline.isEmpty
