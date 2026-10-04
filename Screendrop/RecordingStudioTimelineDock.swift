@@ -26,6 +26,8 @@ struct StudioTimelineDock: View {
     @State private var scrollX: CGFloat = 0
     @State private var scrollPosition = ScrollPosition(edge: .leading)
     @State private var isResetClipsConfirmationPresented = false
+    /// The pointer's position over the lanes, in viewport points.
+    @State private var skimX: CGFloat?
     @Namespace private var glass
 
     /// Step per zoom button press / keyboard shortcut.
@@ -222,23 +224,52 @@ struct StudioTimelineDock: View {
             )
 
             VStack(spacing: StudioTimelineMetrics.rowSpacing) {
-                Color.clear
-                    .frame(height: StudioTimelineMetrics.playheadLaneHeight)
+                // Clicking or dragging along the ruler, or the strip above
+                // it, moves the playhead there.
+                VStack(spacing: StudioTimelineMetrics.rowSpacing) {
+                    Color.clear
+                        .frame(height: StudioTimelineMetrics.playheadLaneHeight)
 
-                StudioTimelineRuler(
-                    duration: model.duration,
-                    pointsPerSecond: scale.pointsPerSecond,
-                    scrollX: scrollX
+                    StudioTimelineRuler(
+                        duration: model.duration,
+                        pointsPerSecond: scale.pointsPerSecond,
+                        scrollX: scrollX
+                    )
+                    .frame(height: StudioTimelineMetrics.rulerHeight)
+                }
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { value in
+                            model.pause()
+                            model.seek(to: scale.time(forX: value.location.x + scrollX))
+                        }
                 )
-                .frame(height: StudioTimelineMetrics.rulerHeight)
 
                 scrollingLanes(scale: scale)
+            }
+            // Hovering anywhere over the timeline - ruler, clips or zoom
+            // lane - skims the preview to that moment.
+            .onContinuousHover { phase in
+                switch phase {
+                case .active(let location):
+                    skimX = location.x
+                    let time = scale.time(forX: location.x + scrollX)
+                    model.timelineHoverTime = time
+                    model.hoverPreviewTime = time
+                case .ended:
+                    skimX = nil
+                    model.timelineHoverTime = nil
+                    model.hoverPreviewTime = nil
+                }
             }
             .overlay {
                 StudioTimelinePlayhead(
                     time: model.currentTime,
                     scale: scale,
-                    scrollX: scrollX
+                    scrollX: scrollX,
+                    skimX: skimX,
+                    showsSkim: !model.isPlaying
                 ) { time in
                     model.pause()
                     model.seek(to: time)
@@ -321,6 +352,10 @@ struct StudioTimelineDock: View {
                 model.seek(to: time)
             },
             onHover: { time in
+                // The lanes' own hover tracking owns skimming and clears it
+                // on leaving the timeline; this only backs it up while the
+                // pointer is over the AppKit strip.
+                guard let time else { return }
                 model.timelineHoverTime = time
                 model.hoverPreviewTime = time
             },
@@ -333,6 +368,9 @@ struct StudioTimelineDock: View {
             onStep: { seconds in
                 model.pause()
                 model.seek(to: model.currentTime + seconds)
+            },
+            onSetSpeed: { clipID, speed in
+                model.setClipSpeed(speed, forClipID: clipID)
             }
         )
     }
@@ -420,7 +458,7 @@ struct StudioTimelineDock: View {
 
 private enum StudioTimelineMetrics {
     static let rowSpacing: CGFloat = 8
-    static let playheadLaneHeight: CGFloat = 14
+    static let playheadLaneHeight: CGFloat = 18
     static let rulerHeight: CGFloat = 16
     static let clipLaneHeight: CGFloat = 52
     static let zoomLaneHeight: CGFloat = 32
@@ -496,21 +534,33 @@ private struct StudioTimelineScale: Equatable {
     }
 }
 
-/// Full-height playhead with a grabbable crown pin in the lane above the
-/// ruler. The crown is the only hit target - everywhere else the overlay
-/// passes clicks through to the tracks underneath.
+/// Full-height playhead with a grabbable knob above the ruler. At rest the
+/// knob is a slim accent capsule with a grip line; hovered or dragged it
+/// grows into a capsule reading out the time, then folds back. The knob is
+/// the only hit target - everywhere else the overlay passes clicks through
+/// to the tracks underneath. The pointer's skim line is drawn here too, so
+/// it runs through every lane rather than just the clip strip.
 private struct StudioTimelinePlayhead: View {
     let time: TimeInterval
     let scale: StudioTimelineScale
     let scrollX: CGFloat
+    /// The pointer's position while skimming, in viewport points.
+    let skimX: CGFloat?
+    let showsSkim: Bool
     let onScrub: (TimeInterval) -> Void
 
+    @State private var isHovering = false
+    @State private var isDragging = false
+
     private enum Metrics {
-        static let crownWidth: CGFloat = 11
-        static let crownHeight: CGFloat = 13
+        static let knobWidth: CGFloat = 10
+        static let knobHeight: CGFloat = 16
+        static let lineWidth: CGFloat = 2
         static let hitWidth: CGFloat = 26
-        static let hitHeight: CGFloat = 22
-        static let lineWidth: CGFloat = 1.5
+        /// Rough width of the expanded time readout, for keeping it on screen.
+        static let readoutWidth: CGFloat = 54
+        /// How far the knob may overhang the lanes into the dock's margin.
+        static let edgeOverhang: CGFloat = 12
     }
 
     private static let coordinateSpace = "studio.playheadLane"
@@ -518,81 +568,95 @@ private struct StudioTimelinePlayhead: View {
     var body: some View {
         GeometryReader { proxy in
             let width = max(proxy.size.width, 1)
+            let headHeight = StudioTimelineMetrics.playheadLaneHeight
             // Viewport space: the playhead overlay never scrolls, it just
             // tracks the scrolled lanes underneath it.
             let x = scale.x(for: time) - scrollX
             let isVisible = x >= -Metrics.lineWidth && x <= width + Metrics.lineWidth
+            let isExpanded = isHovering || isDragging
+            let halfHead = (isExpanded ? Metrics.readoutWidth : Metrics.knobWidth) / 2
+            // The line stays on the true time; near either end the knob
+            // slides inward so its readout is never cut off.
+            let headX = min(
+                max(x, halfHead - Metrics.edgeOverhang),
+                width - halfHead + Metrics.edgeOverhang
+            )
 
             ZStack(alignment: .topLeading) {
-                Rectangle()
+                if showsSkim, let skimX, !isDragging {
+                    Rectangle()
+                        .fill(Color.primary.opacity(0.32))
+                        .frame(width: 1, height: max(0, proxy.size.height - headHeight))
+                        .offset(x: skimX - 0.5, y: headHeight)
+                        .allowsHitTesting(false)
+                }
+
+                Capsule()
                     .fill(Color.accentColor)
                     .frame(
                         width: Metrics.lineWidth,
-                        height: max(0, proxy.size.height - Metrics.crownHeight + 2)
+                        height: max(0, proxy.size.height - headHeight + 2)
                     )
-                    .offset(x: x - Metrics.lineWidth / 2, y: Metrics.crownHeight - 2)
+                    .shadow(color: .black.opacity(0.25), radius: 1)
+                    .offset(x: x - Metrics.lineWidth / 2, y: headHeight - 2)
                     .allowsHitTesting(false)
                     .opacity(isVisible ? 1 : 0)
 
-                Color.clear
-                    .frame(width: Metrics.hitWidth, height: Metrics.hitHeight)
+                head(isExpanded: isExpanded)
+                    .frame(width: isExpanded ? nil : Metrics.hitWidth, height: headHeight)
                     .contentShape(Rectangle())
-                    .overlay(alignment: .top) {
-                        PlayheadCrownShape()
-                            .fill(Color.accentColor)
-                            .frame(width: Metrics.crownWidth, height: Metrics.crownHeight)
-                            .shadow(color: .black.opacity(0.22), radius: 1, y: 0.5)
-                    }
-                    .offset(x: x - Metrics.hitWidth / 2, y: 0)
-                    .opacity(isVisible ? 1 : 0)
-                    .allowsHitTesting(isVisible)
+                    .onHover { isHovering = $0 }
+                    .pointerStyle(.columnResize)
                     .gesture(
                         DragGesture(
                             minimumDistance: 0,
                             coordinateSpace: .named(Self.coordinateSpace)
                         )
                         .onChanged { value in
+                            isDragging = true
                             onScrub(scale.time(forX: value.location.x + scrollX))
                         }
+                        .onEnded { _ in
+                            isDragging = false
+                        }
                     )
+                    .position(x: headX, y: headHeight / 2)
+                    .opacity(isVisible ? 1 : 0)
+                    .allowsHitTesting(isVisible)
             }
         }
         .coordinateSpace(name: Self.coordinateSpace)
+        .motion(.morphQuick, value: isHovering || isDragging)
     }
-}
 
-/// Rounded flag with a pointed tail, the classic editor playhead pin.
-private struct PlayheadCrownShape: Shape {
-    func path(in rect: CGRect) -> Path {
-        let cornerRadius: CGFloat = 3
-        let tailHeight: CGFloat = 4
-        let bodyBottom = rect.maxY - tailHeight
-
-        var path = Path()
-        path.move(to: CGPoint(x: rect.minX + cornerRadius, y: rect.minY))
-        path.addLine(to: CGPoint(x: rect.maxX - cornerRadius, y: rect.minY))
-        path.addQuadCurve(
-            to: CGPoint(x: rect.maxX, y: rect.minY + cornerRadius),
-            control: CGPoint(x: rect.maxX, y: rect.minY)
-        )
-        path.addLine(to: CGPoint(x: rect.maxX, y: bodyBottom - cornerRadius))
-        path.addQuadCurve(
-            to: CGPoint(x: rect.maxX - cornerRadius, y: bodyBottom),
-            control: CGPoint(x: rect.maxX, y: bodyBottom)
-        )
-        path.addLine(to: CGPoint(x: rect.midX, y: rect.maxY))
-        path.addLine(to: CGPoint(x: rect.minX + cornerRadius, y: bodyBottom))
-        path.addQuadCurve(
-            to: CGPoint(x: rect.minX, y: bodyBottom - cornerRadius),
-            control: CGPoint(x: rect.minX, y: bodyBottom)
-        )
-        path.addLine(to: CGPoint(x: rect.minX, y: rect.minY + cornerRadius))
-        path.addQuadCurve(
-            to: CGPoint(x: rect.minX + cornerRadius, y: rect.minY),
-            control: CGPoint(x: rect.minX, y: rect.minY)
-        )
-        path.closeSubpath()
-        return path
+    private func head(isExpanded: Bool) -> some View {
+        ZStack {
+            if isExpanded {
+                Text(studioPreciseTimecode(time))
+                    .font(.system(size: 10, weight: .semibold).monospacedDigit())
+                    .foregroundStyle(.white)
+                    .fixedSize()
+                    .padding(.horizontal, 7)
+                    .transition(AnyTransition(.blurReplace))
+            } else {
+                Capsule()
+                    .fill(Color.white.opacity(0.9))
+                    .frame(width: 2, height: 6)
+                    .transition(AnyTransition(.blurReplace))
+            }
+        }
+        .frame(minWidth: Metrics.knobWidth, minHeight: Metrics.knobHeight)
+        .frame(height: Metrics.knobHeight)
+        .background {
+            Capsule()
+                .fill(Color.accentColor)
+                .shadow(color: .black.opacity(0.28), radius: 1.5, y: 0.5)
+        }
+        .overlay {
+            Capsule()
+                .strokeBorder(Color.white.opacity(0.28), lineWidth: 0.5)
+        }
+        .fixedSize()
     }
 }
 
@@ -732,6 +796,9 @@ func studioPreciseTimecode(_ seconds: Double) -> String {
 /// Frame around the zoom lane. It stays pinned to the viewport while the cue
 /// blocks scroll inside it, so the lane reads as a fixed track no matter how
 /// far the timeline is zoomed.
+/// Frame around the zoom lane. It stays pinned to the viewport while the cue
+/// blocks scroll inside it, so the lane reads as a fixed track no matter how
+/// far the timeline is zoomed.
 private struct StudioZoomLaneBackground: View {
     /// An empty lane explains itself instead of reading as dead space.
     var showsHint = false
@@ -744,11 +811,13 @@ private struct StudioZoomLaneBackground: View {
             .fill(Color.primary.opacity(0.055))
             .overlay {
                 if showsHint {
-                    Label("Drag here to add a zoom", systemImage: "plus.magnifyingglass")
+                    Label("Drag across this lane to add a zoom", systemImage: "plus.magnifyingglass")
                         .font(.system(size: 10.5, weight: .medium))
                         .foregroundStyle(.tertiary)
+                        .transition(AnyTransition(.blurReplace))
                 }
             }
+            .motion(.morph, value: showsHint)
             .allowsHitTesting(false)
     }
 }
@@ -783,6 +852,10 @@ private struct StudioZoomLane: View {
                             if dragStartTime == nil {
                                 model.pause()
                                 dragStartTime = time
+                                // A click on empty lane lets go of whatever
+                                // was selected, like clicking empty canvas.
+                                model.selectedCueID = nil
+                                model.selectedClipID = nil
                             }
                             guard let startTime = dragStartTime else { return }
 
@@ -803,15 +876,32 @@ private struct StudioZoomLane: View {
                             // gap here to put a zoom in.
                             if let range = pendingZoomRange,
                                range.upperBound - range.lowerBound > 0.001 {
-                                model.addZoomCue(
-                                    fromEditorTime: range.lowerBound,
-                                    toEditorTime: range.upperBound
-                                )
+                                withAnimation(.morphIfAllowed) {
+                                    model.addZoomCue(
+                                        fromEditorTime: range.lowerBound,
+                                        toEditorTime: range.upperBound
+                                    )
+                                }
                             }
                             dragStartTime = nil
                             pendingZoomRange = nil
                         }
                 )
+
+            // Recorded clicks as small dots along the lane's floor, so they
+            // mark where Auto Zoom would act without striping the blocks.
+            // Culled to the visible span: an hour-long take can hold
+            // thousands of clicks, and only a screenful can ever be seen.
+            ForEach(Array(visiblePressTimes.enumerated()), id: \.offset) { _, pressTime in
+                Circle()
+                    .fill(Color.primary.opacity(0.28))
+                    .frame(width: 3, height: 3)
+                    .offset(
+                        x: scale.x(for: pressTime) - 1.5,
+                        y: StudioZoomLaneMetrics.laneHeight - StudioZoomLaneMetrics.blockInset - 3
+                    )
+                    .allowsHitTesting(false)
+            }
 
             if let pendingZoomRange {
                 let lowX = scale.x(for: pendingZoomRange.lowerBound)
@@ -820,30 +910,33 @@ private struct StudioZoomLane: View {
                     cornerRadius: StudioZoomLaneMetrics.blockCornerRadius,
                     style: .continuous
                 )
-                    .fill(Color.accentColor.opacity(0.35))
+                    .fill(Color.accentColor.opacity(0.22))
+                    .overlay {
+                        RoundedRectangle(
+                            cornerRadius: StudioZoomLaneMetrics.blockCornerRadius,
+                            style: .continuous
+                        )
+                        .strokeBorder(
+                            Color.accentColor.opacity(0.8),
+                            style: StrokeStyle(lineWidth: 1.5, dash: [4, 3])
+                        )
+                    }
                     .frame(width: max(2, highX - lowX), height: StudioZoomLaneMetrics.blockHeight)
                     .offset(x: lowX, y: StudioZoomLaneMetrics.blockInset)
                     .allowsHitTesting(false)
             }
 
-            // Click ticks and cue blocks are culled to the visible span: an
-            // hour-long take can hold thousands of clicks, and only a screenful
-            // of them can ever be seen.
-            ForEach(Array(visiblePressTimes.enumerated()), id: \.offset) { _, pressTime in
-                Rectangle()
-                    .fill(Color.accentColor.opacity(0.38))
-                    .frame(width: 1, height: 10)
-                    .offset(x: scale.x(for: pressTime), y: 11)
-                    .allowsHitTesting(false)
-            }
-
             ForEach(visibleBlocks) { block in
                 StudioZoomCueBlock(model: model, block: block, scale: scale)
+                    .transition(.blurPop)
             }
         }
+        .opacity(model.zoomEnabled ? 1 : 0.45)
         .contextMenu {
-            Button("Add Zoom at Playhead") {
-                model.addZoomCue(at: model.currentTime)
+            Button("Add Zoom at Playhead", systemImage: "plus.magnifyingglass") {
+                withAnimation(.morphIfAllowed) {
+                    model.addZoomCue(at: model.currentTime)
+                }
             }
         }
     }
@@ -881,16 +974,25 @@ private struct StudioZoomLane: View {
 }
 
 private enum StudioZoomLaneMetrics {
+    static let laneHeight = StudioTimelineMetrics.zoomLaneHeight
     static let laneInset: CGFloat = 4
-    static let blockCornerRadius: CGFloat = 6
+    static let blockCornerRadius: CGFloat = 7
     static let laneCornerRadius = blockCornerRadius + laneInset
-    static let selectionRingPadding: CGFloat = 1
-    static let selectionRingCornerRadius = blockCornerRadius + selectionRingPadding
-    static let blockHeight: CGFloat = 24
     static let blockInset: CGFloat = 4
-    static let minimumLabelledBlockWidth: CGFloat = 48
+    static let blockHeight = laneHeight - blockInset * 2
+    static let handleWidth: CGFloat = 10
+    /// Narrowest block that still shows its magnification.
+    static let minimumLabelledBlockWidth: CGFloat = 44
+    /// Narrowest block that also names its camera focus.
+    static let minimumDetailedBlockWidth: CGFloat = 120
+    /// Magnifications offered from a block's context menu.
+    static let zoomPresets: [Double] = [1.25, 1.5, 2, 2.5, 3]
 }
 
+/// One zoom on the timeline: an accent capsule whose label names the
+/// magnification (and, when there is room, where the camera looks). Resize
+/// handles show on hover and selection; a turned-off zoom keeps its place as
+/// a muted, hatched block.
 private struct StudioZoomCueBlock: View {
     @Bindable var model: RecordingStudioModel
     let block: RecordingZoomTimelineBlock
@@ -906,14 +1008,23 @@ private struct StudioZoomCueBlock: View {
     }
 
     @State private var dragBase: DragBase?
+    @State private var isHovering = false
 
     private var isSelected: Bool {
         model.selectedCueID == block.cue.id
     }
 
-    var body: some View {
-        guard scale.pointsPerSecond > 0 else { return AnyView(EmptyView()) }
+    private var showsHandles: Bool {
+        isSelected || isHovering || dragBase != nil
+    }
 
+    var body: some View {
+        if scale.pointsPerSecond > 0 {
+            content
+        }
+    }
+
+    private var content: some View {
         let cue = block.cue
         let blockDuration = block.editorEnd - block.editorStart
         // Short cues keep a grabbable minimum width even when the timeline is
@@ -926,99 +1037,231 @@ private struct StudioZoomCueBlock: View {
             max(scale.x(for: block.editorStart), 0),
             max(0, scale.contentWidth - width)
         )
+        let shape = RoundedRectangle(cornerRadius: StudioZoomLaneMetrics.blockCornerRadius, style: .continuous)
 
-        return AnyView(
-            HStack(spacing: 0) {
-                resizeHandle(edge: .leading)
-                Spacer(minLength: 0)
-                // Too narrow for the label: show the block bare rather
-                // than a truncated "…".
-                if width >= StudioZoomLaneMetrics.minimumLabelledBlockWidth {
-                    Text(String(format: "%.1f×", cue.zoom))
-                        .font(.system(size: 10, weight: .semibold, design: .rounded))
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
-                        .fixedSize()
-                }
-                Spacer(minLength: 0)
-                resizeHandle(edge: .trailing)
-            }
+        return label(for: cue, width: width)
             .frame(width: width, height: StudioZoomLaneMetrics.blockHeight)
-            .background(
-                RoundedRectangle(
-                    cornerRadius: StudioZoomLaneMetrics.blockCornerRadius,
-                    style: .continuous
-                )
-                    .fill(Color.accentColor.opacity(isSelected ? 0.95 : 0.72))
-            )
+            .background { blockFill(cue: cue, shape: shape) }
+            .overlay {
+                // A soft top highlight gives the block a little body.
+                shape
+                    .strokeBorder(
+                        LinearGradient(
+                            colors: [.white.opacity(cue.isEnabled ? 0.35 : 0.12), .white.opacity(0.04)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        ),
+                        lineWidth: 1
+                    )
+                    .allowsHitTesting(false)
+            }
+            .overlay(alignment: .leading) {
+                if showsHandles { resizeHandle(edge: .leading).transition(.opacity) }
+            }
+            .overlay(alignment: .trailing) {
+                if showsHandles { resizeHandle(edge: .trailing).transition(.opacity) }
+            }
             .overlay {
                 if isSelected {
-                    RoundedRectangle(
-                        cornerRadius: StudioZoomLaneMetrics.selectionRingCornerRadius,
-                        style: .continuous
-                    )
-                        .stroke(Color.white.opacity(0.8), lineWidth: 1.5)
-                        .padding(-StudioZoomLaneMetrics.selectionRingPadding)
+                    // Drawn inside the block's edge: blocks at either end of
+                    // the timeline sit against the scroll view's clip, which
+                    // would cut an outside ring off.
+                    shape
+                        .strokeBorder(Color.white.opacity(0.95), lineWidth: 2)
+                        .allowsHitTesting(false)
+                        .transition(.opacity)
                 }
             }
+            .contentShape(shape)
+            .brightness(isHovering && !isSelected ? 0.05 : 0)
+            .onHover { isHovering = $0 }
+            .motion(.morphQuick, value: showsHandles)
+            .motion(.morphQuick, value: isSelected)
             .offset(x: x, y: StudioZoomLaneMetrics.blockInset)
-            .gesture(
-                // Global coordinates: the block moves under the pointer while
-                // dragging, so a local-space translation would chase its own
-                // updates and jitter.
-                DragGesture(coordinateSpace: .global)
-                    .onChanged { value in
-                        if dragBase == nil {
-                            dragBase = DragBase(
-                                cue: cue,
-                                editorStart: block.editorStart,
-                                editorEnd: block.editorEnd
-                            )
-                            model.beginZoomCueEdit()
-                            model.selectZoomCue(id: cue.id)
-                        }
-                        guard let dragBase else { return }
-                        let delta = Double(value.translation.width) * scale.secondsPerPoint
-                        var moved = dragBase.cue
-                        let length = dragBase.cue.duration
-                        let baseBlockDuration = dragBase.editorEnd - dragBase.editorStart
-                        let editorStart = min(
-                            max(0, dragBase.editorStart + delta),
-                            max(0, model.duration - baseBlockDuration)
-                        )
-                        moved.start = min(
-                            max(0, model.sourceTime(atEditorTime: editorStart)),
-                            max(0, model.sourceDuration - length)
-                        )
-                        moved.end = min(model.sourceDuration, moved.start + length)
-                        model.moveZoomCue(moved)
-                    }
-                    .onEnded { _ in
-                        dragBase = nil
-                        model.endZoomCueEdit(actionName: "Move Zoom")
-                    }
-            )
+            .gesture(moveGesture(cue: cue))
             .onTapGesture {
                 model.selectZoomCue(id: cue.id)
             }
-            .contextMenu {
-                Button("Remove Zoom", role: .destructive) {
-                    model.removeZoomCue(id: cue.id)
+            .contextMenu { menu(for: cue) }
+            .help(helpText(for: cue))
+    }
+
+    @ViewBuilder
+    private func label(for cue: ZoomCue, width: CGFloat) -> some View {
+        // Too narrow for the label: show the block bare rather than a
+        // truncated "…".
+        if width >= StudioZoomLaneMetrics.minimumLabelledBlockWidth {
+            HStack(spacing: 4) {
+                if width >= StudioZoomLaneMetrics.minimumLabelledBlockWidth + 18 {
+                    Image(systemName: cue.anchorMode == .pinnedAnchor ? "scope" : "plus.magnifyingglass")
+                        .font(.system(size: 9, weight: .bold))
+                }
+                Text(cue.isEnabled
+                    ? InspectorValueFormat.magnification(fractionDigits: 1).displayString(for: cue.zoom)
+                    : "Off")
+                    .font(.system(size: 10, weight: .semibold, design: .rounded).monospacedDigit())
+                if width >= StudioZoomLaneMetrics.minimumDetailedBlockWidth, cue.isEnabled {
+                    Text(cue.anchorMode.laneTitle)
+                        .font(.system(size: 10, weight: .medium))
+                        .opacity(0.75)
                 }
             }
-        )
+            .foregroundStyle(cue.isEnabled ? Color.white : Color.secondary)
+            .lineLimit(1)
+            .fixedSize()
+            .padding(.horizontal, StudioZoomLaneMetrics.handleWidth)
+            .allowsHitTesting(false)
+        }
+    }
+
+    @ViewBuilder
+    private func blockFill(cue: ZoomCue, shape: RoundedRectangle) -> some View {
+        if cue.isEnabled {
+            shape.fill(
+                LinearGradient(
+                    colors: [
+                        Color.accentColor.opacity(isSelected ? 1 : 0.88),
+                        Color.accentColor.opacity(isSelected ? 0.86 : 0.72)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            )
+        } else {
+            shape
+                .fill(Color.primary.opacity(0.08))
+                .overlay {
+                    // Hatched, so a turned-off zoom reads as "kept, not used".
+                    Canvas { context, size in
+                        var path = Path()
+                        var x: CGFloat = -size.height
+                        while x < size.width {
+                            path.move(to: CGPoint(x: x, y: size.height))
+                            path.addLine(to: CGPoint(x: x + size.height, y: 0))
+                            x += 6
+                        }
+                        context.stroke(path, with: .color(.primary.opacity(0.10)), lineWidth: 1)
+                    }
+                    .clipShape(shape)
+                }
+        }
+    }
+
+    @ViewBuilder
+    private func menu(for cue: ZoomCue) -> some View {
+        Menu("Zoom Level") {
+            ForEach(StudioZoomLaneMetrics.zoomPresets, id: \.self) { preset in
+                Toggle(
+                    String(format: "%g×", preset),
+                    isOn: Binding(
+                        get: { abs(cue.zoom - preset) < 0.01 },
+                        set: { _ in edit(cue, action: "Change Zoom Level") { $0.zoom = preset } }
+                    )
+                )
+            }
+        }
+
+        Menu("Camera Focus") {
+            ForEach(ZoomAnchorMode.allCases, id: \.self) { mode in
+                Toggle(
+                    mode.laneTitle,
+                    isOn: Binding(
+                        get: { cue.anchorMode == mode },
+                        set: { _ in
+                            edit(cue, action: "Change Camera Focus") { updated in
+                                updated.anchorMode = mode
+                                if mode == .pinnedAnchor,
+                                   let pointer = model.pointerLocation(at: model.currentTime) {
+                                    updated.pinnedPoint = pointer
+                                }
+                            }
+                        }
+                    )
+                )
+            }
+        }
+
+        Divider()
+
+        Button(cue.isEnabled ? "Turn Off This Zoom" : "Turn On This Zoom",
+               systemImage: cue.isEnabled ? "eye.slash" : "eye") {
+            edit(cue, action: cue.isEnabled ? "Turn Off Zoom" : "Turn On Zoom") {
+                $0.isEnabled.toggle()
+            }
+        }
+
+        Button("Remove Zoom", systemImage: "trash", role: .destructive) {
+            withAnimation(.morphIfAllowed) {
+                model.removeZoomCue(id: cue.id)
+            }
+        }
+    }
+
+    /// One undoable change to this zoom from its context menu.
+    private func edit(_ cue: ZoomCue, action: String, _ change: (inout ZoomCue) -> Void) {
+        var updated = cue
+        change(&updated)
+        model.beginZoomCueEdit()
+        withAnimation(.morphQuickIfAllowed) {
+            model.updateZoomCue(updated)
+        }
+        model.endZoomCueEdit(actionName: action)
+    }
+
+    private func helpText(for cue: ZoomCue) -> String {
+        guard cue.isEnabled else { return "Turned off. Right-click to turn it back on." }
+        return "Drag to move, drag an edge to resize, right-click for options"
+    }
+
+    private func moveGesture(cue: ZoomCue) -> some Gesture {
+        // Global coordinates: the block moves under the pointer while
+        // dragging, so a local-space translation would chase its own
+        // updates and jitter.
+        DragGesture(coordinateSpace: .global)
+            .onChanged { value in
+                if dragBase == nil {
+                    dragBase = DragBase(
+                        cue: cue,
+                        editorStart: block.editorStart,
+                        editorEnd: block.editorEnd
+                    )
+                    model.beginZoomCueEdit()
+                    model.selectZoomCue(id: cue.id)
+                }
+                guard let dragBase else { return }
+                let delta = Double(value.translation.width) * scale.secondsPerPoint
+                var moved = dragBase.cue
+                let length = dragBase.cue.duration
+                let baseBlockDuration = dragBase.editorEnd - dragBase.editorStart
+                let editorStart = min(
+                    max(0, dragBase.editorStart + delta),
+                    max(0, model.duration - baseBlockDuration)
+                )
+                moved.start = min(
+                    max(0, model.sourceTime(atEditorTime: editorStart)),
+                    max(0, model.sourceDuration - length)
+                )
+                moved.end = min(model.sourceDuration, moved.start + length)
+                model.moveZoomCue(moved)
+            }
+            .onEnded { _ in
+                dragBase = nil
+                model.endZoomCueEdit(actionName: "Move Zoom")
+            }
     }
 
     private func resizeHandle(edge: HorizontalEdge) -> some View {
         Rectangle()
             .fill(Color.white.opacity(0.001))
-            .frame(width: 10, height: StudioZoomLaneMetrics.blockHeight)
-            .overlay(alignment: .center) {
+            .frame(width: StudioZoomLaneMetrics.handleWidth, height: StudioZoomLaneMetrics.blockHeight)
+            .overlay {
                 Capsule()
-                    .fill(Color.white.opacity(isSelected ? 0.9 : 0.45))
-                    .frame(width: 2.5, height: 12)
+                    .fill(block.cue.isEnabled ? Color.white.opacity(0.95) : Color.primary.opacity(0.5))
+                    .frame(width: 3, height: 12)
+                    .shadow(color: .black.opacity(0.25), radius: 1)
             }
             .contentShape(Rectangle())
+            .pointerStyle(.frameResize(position: edge == .leading ? .leading : .trailing))
             .gesture(
                 // Global coordinates - the handle itself moves while resizing,
                 // so local-space translations feed back into the drag and jitter.
@@ -1059,5 +1302,15 @@ private struct StudioZoomCueBlock: View {
                         model.endZoomCueEdit(actionName: "Resize Zoom")
                     }
             )
+    }
+}
+
+private extension ZoomAnchorMode {
+    var laneTitle: String {
+        switch self {
+        case .pointerAnchor: "Pointer"
+        case .smartAnchor: "Smart"
+        case .pinnedAnchor: "Fixed"
+        }
     }
 }

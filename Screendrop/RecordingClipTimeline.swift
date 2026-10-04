@@ -13,6 +13,9 @@ nonisolated struct RecordingClipSegment: Identifiable, Codable, Equatable, Senda
     static let minimumDuration: TimeInterval = 0.12
     static let minimumSpeed: Double = 1
     static let maximumSpeed: Double = 8
+    /// Rates offered wherever a clip's speed is picked - the inspector and
+    /// the timeline's context menu - so both list the same choices.
+    static let speedPresets: [Double] = [1, 1.5, 2, 3, 4, 8]
 
     var id: UUID
     var sourceStart: TimeInterval
@@ -367,5 +370,16 @@ nonisolated struct RecordingClipTimeline: Codable, Equatable, Sendable {
         return abs(only.sourceStart) < 0.000_001
             && abs(only.sourceEnd - sourceDuration) < 0.000_001
             && abs(only.speed - 1) < 0.000_001
+    }
+}
+
+nonisolated extension RecordingClipSegment {
+    /// "1.5×", "2×": trailing zeros dropped.
+    static func speedTitle(_ speed: Double) -> String {
+        let rounded = (speed * 100).rounded() / 100
+        let text = rounded == rounded.rounded()
+            ? String(Int(rounded))
+            : String(format: "%g", rounded)
+        return "\(text)×"
     }
 }

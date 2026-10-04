@@ -29,6 +29,8 @@ struct RecordingClipTimelineView: NSViewRepresentable {
     let onZoom: (Double, TimeInterval) -> Void
     /// Arrow-key nudge of the playhead by a signed number of seconds.
     let onStep: (TimeInterval) -> Void
+    /// A speed picked from a clip's context menu: `(clip, rate)`.
+    let onSetSpeed: (UUID, Double) -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
@@ -41,7 +43,8 @@ struct RecordingClipTimelineView: NSViewRepresentable {
             onDelete: onDelete,
             onTrim: onTrim,
             onZoom: onZoom,
-            onStep: onStep
+            onStep: onStep,
+            onSetSpeed: onSetSpeed
         )
     }
 
@@ -60,7 +63,8 @@ struct RecordingClipTimelineView: NSViewRepresentable {
             onDelete: onDelete,
             onTrim: onTrim,
             onZoom: onZoom,
-            onStep: onStep
+            onStep: onStep,
+            onSetSpeed: onSetSpeed
         )
         nsView.update(
             timeline: timeline,
@@ -83,6 +87,7 @@ struct RecordingClipTimelineView: NSViewRepresentable {
         private var onTrim: (RecordingClipSegment) -> Void
         private var onZoom: (Double, TimeInterval) -> Void
         private var onStep: (TimeInterval) -> Void
+        private var onSetSpeed: (UUID, Double) -> Void
 
         init(
             selectedClipID: Binding<UUID?>,
@@ -94,7 +99,8 @@ struct RecordingClipTimelineView: NSViewRepresentable {
             onDelete: @escaping () -> Void,
             onTrim: @escaping (RecordingClipSegment) -> Void,
             onZoom: @escaping (Double, TimeInterval) -> Void,
-            onStep: @escaping (TimeInterval) -> Void
+            onStep: @escaping (TimeInterval) -> Void,
+            onSetSpeed: @escaping (UUID, Double) -> Void
         ) {
             _selectedClipID = selectedClipID
             _playheadTime = playheadTime
@@ -106,6 +112,7 @@ struct RecordingClipTimelineView: NSViewRepresentable {
             self.onTrim = onTrim
             self.onZoom = onZoom
             self.onStep = onStep
+            self.onSetSpeed = onSetSpeed
         }
 
         func updateCallbacks(
@@ -116,7 +123,8 @@ struct RecordingClipTimelineView: NSViewRepresentable {
             onDelete: @escaping () -> Void,
             onTrim: @escaping (RecordingClipSegment) -> Void,
             onZoom: @escaping (Double, TimeInterval) -> Void,
-            onStep: @escaping (TimeInterval) -> Void
+            onStep: @escaping (TimeInterval) -> Void,
+            onSetSpeed: @escaping (UUID, Double) -> Void
         ) {
             self.onSelect = onSelect
             self.onSeek = onSeek
@@ -126,6 +134,7 @@ struct RecordingClipTimelineView: NSViewRepresentable {
             self.onTrim = onTrim
             self.onZoom = onZoom
             self.onStep = onStep
+            self.onSetSpeed = onSetSpeed
         }
 
         func connect(to view: RecordingClipTimelineControl) {
@@ -155,6 +164,9 @@ struct RecordingClipTimelineView: NSViewRepresentable {
             view.stepRequested = { [weak self] seconds in
                 self?.onStep(seconds)
             }
+            view.speedRequested = { [weak self] clipID, speed in
+                self?.onSetSpeed(clipID, speed)
+            }
         }
     }
 }
@@ -168,6 +180,7 @@ final class RecordingClipTimelineControl: NSView {
     var trimDidCommit: ((RecordingClipSegment) -> Void)?
     var zoomRequested: ((Double, TimeInterval) -> Void)?
     var stepRequested: ((TimeInterval) -> Void)?
+    var speedRequested: ((UUID, Double) -> Void)?
 
     private enum Edge: Equatable {
         case leading
@@ -276,7 +289,7 @@ final class RecordingClipTimelineControl: NSView {
         drawSelectionChrome()
         drawClips(in: dirtyRect)
         drawSelectionGrooves()
-        drawHoverSkimmer()
+        drawBadges(in: dirtyRect)
     }
 
     override func mouseEntered(with event: NSEvent) {
@@ -297,7 +310,7 @@ final class RecordingClipTimelineControl: NSView {
         if hoveredEdge != nil {
             NSCursor.resizeLeftRight.set()
         } else {
-            NSCursor.crosshair.set()
+            NSCursor.arrow.set()
         }
     }
 
@@ -433,6 +446,33 @@ final class RecordingClipTimelineControl: NSView {
 
         menu.addItem(.separator())
 
+        let currentSpeed = timeline.segments.first { $0.id == location.segmentID }?.speed ?? 1
+        let speedMenu = NSMenu()
+        for preset in RecordingClipSegment.speedPresets {
+            let item = NSMenuItem(
+                title: preset == 1 ? "Normal (1×)" : RecordingClipSegment.speedTitle(preset),
+                action: #selector(speedFromContextMenu(_:)),
+                keyEquivalent: ""
+            )
+            item.target = self
+            item.representedObject = preset
+            item.state = abs(preset - currentSpeed) < 0.001 ? .on : .off
+            speedMenu.addItem(item)
+            if preset == 1 {
+                speedMenu.addItem(.separator())
+            }
+        }
+        let speed = NSMenuItem(
+            title: currentSpeed == 1 ? "Speed" : "Speed (\(RecordingClipSegment.speedTitle(currentSpeed)))",
+            action: nil,
+            keyEquivalent: ""
+        )
+        speed.image = NSImage(systemSymbolName: "hare", accessibilityDescription: nil)
+        speed.submenu = speedMenu
+        menu.addItem(speed)
+
+        menu.addItem(.separator())
+
         let delete = NSMenuItem(
             title: "Delete Clip",
             action: #selector(deleteFromContextMenu),
@@ -443,6 +483,11 @@ final class RecordingClipTimelineControl: NSView {
         delete.isEnabled = timeline.segments.count > 1
         menu.addItem(delete)
         return menu
+    }
+
+    @objc private func speedFromContextMenu(_ sender: NSMenuItem) {
+        guard let contextClipID, let speed = sender.representedObject as? Double else { return }
+        speedRequested?(contextClipID, speed)
     }
 
     @objc private func splitFromContextMenu() {
@@ -604,9 +649,24 @@ final class RecordingClipTimelineControl: NSView {
                 yRadius: clipRadius(for: rect)
             ).addClip()
             drawThumbnails(in: rect, clip: clip, dirtyRect: dirtyRect)
-            NSColor.black.withAlphaComponent(0.08).setFill()
+            // Unselected clips sit a little back from the selected one;
+            // the clip under the pointer lifts toward it.
+            let isSelected = clip.id == selectedClipID
+            let isHovered = clip.id == hoveredClipID && dragTarget == nil
+            NSColor.black.withAlphaComponent(isSelected ? 0 : isHovered ? 0.06 : 0.16).setFill()
             rect.intersection(dirtyRect).fill()
             NSGraphicsContext.restoreGraphicsState()
+
+            // A hairline inner edge so neighbouring clips and the track read
+            // apart even where the thumbnails are dark.
+            NSColor.white.withAlphaComponent(isSelected ? 0.0 : 0.10).setStroke()
+            let edge = NSBezierPath(
+                roundedRect: rect.insetBy(dx: 0.5, dy: 0.5),
+                xRadius: max(0, clipRadius(for: rect) - 0.5),
+                yRadius: max(0, clipRadius(for: rect) - 0.5)
+            )
+            edge.lineWidth = 1
+            edge.stroke()
         }
     }
 
@@ -716,11 +776,115 @@ final class RecordingClipTimelineControl: NSView {
         )
     }
 
-    private func drawHoverSkimmer() {
-        guard let hoverTime, dragTarget == nil else { return }
-        let x = xPosition(for: hoverTime)
-        NSColor.controlAccentColor.withAlphaComponent(0.42).setFill()
-        CGRect(x: x - 0.5, y: timelineRect.minY, width: 1, height: timelineRect.height).fill()
+    /// A speed badge on every clip that plays faster than recorded, and the
+    /// selected clip's edited length - each only where the clip is wide
+    /// enough to carry it without covering the picture.
+    private func drawBadges(in dirtyRect: CGRect) {
+        for clip in timeline.segments {
+            guard let rect = clipRect(for: clip.id), rect.intersects(dirtyRect) else { continue }
+            let content = rect.insetBy(dx: Metrics.selectionHandleInset * 2 + 2, dy: 5)
+            var leadingX = content.minX
+
+            if abs(clip.speed - 1) > 0.001 {
+                let badge = badgeRect(
+                    text: RecordingClipSegment.speedTitle(clip.speed),
+                    symbol: "hare.fill",
+                    origin: CGPoint(x: leadingX, y: content.minY),
+                    maxX: content.maxX
+                )
+                if let badge {
+                    drawBadge(badge)
+                    leadingX = badge.frame.maxX + 4
+                }
+            }
+
+            if clip.id == selectedClipID {
+                let length = Self.durationText(clip.editorDuration)
+                let size = Self.badgeSize(text: length, hasSymbol: false)
+                let origin = CGPoint(x: content.maxX - size.width, y: content.maxY - size.height)
+                if origin.x >= leadingX {
+                    drawBadge(BadgeLayout(
+                        frame: CGRect(origin: origin, size: size),
+                        text: length,
+                        symbol: nil
+                    ))
+                }
+            }
+        }
+    }
+
+    private struct BadgeLayout {
+        let frame: CGRect
+        let text: String
+        let symbol: String?
+    }
+
+    private static let badgeFont = NSFont.systemFont(ofSize: 10, weight: .semibold)
+    private static let badgeHeight: CGFloat = 16
+    private static let badgePadding: CGFloat = 6
+    private static let badgeSymbolWidth: CGFloat = 11
+
+    private static func badgeSize(text: String, hasSymbol: Bool) -> CGSize {
+        let textWidth = (text as NSString).size(withAttributes: [.font: badgeFont]).width
+        let symbolWidth = hasSymbol ? badgeSymbolWidth + 3 : 0
+        return CGSize(width: ceil(textWidth + symbolWidth + badgePadding * 2), height: badgeHeight)
+    }
+
+    private func badgeRect(text: String, symbol: String?, origin: CGPoint, maxX: CGFloat) -> BadgeLayout? {
+        let size = Self.badgeSize(text: text, hasSymbol: symbol != nil)
+        guard origin.x + size.width <= maxX else { return nil }
+        return BadgeLayout(frame: CGRect(origin: origin, size: size), text: text, symbol: symbol)
+    }
+
+    private func drawBadge(_ badge: BadgeLayout) {
+        let frame = badge.frame
+        NSColor.black.withAlphaComponent(0.62).setFill()
+        NSBezierPath(roundedRect: frame, xRadius: frame.height / 2, yRadius: frame.height / 2).fill()
+
+        var x = frame.minX + Self.badgePadding
+        if let symbol = badge.symbol,
+           let image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
+            .withSymbolConfiguration(
+                NSImage.SymbolConfiguration(pointSize: 9, weight: .bold)
+                    .applying(NSImage.SymbolConfiguration(paletteColors: [.white]))
+            ) {
+            let imageSize = image.size
+            let scale = min(Self.badgeSymbolWidth / max(imageSize.width, 1), 10 / max(imageSize.height, 1))
+            let drawSize = CGSize(width: imageSize.width * scale, height: imageSize.height * scale)
+            image.draw(
+                in: CGRect(
+                    x: x,
+                    y: frame.midY - drawSize.height / 2,
+                    width: drawSize.width,
+                    height: drawSize.height
+                ),
+                from: .zero,
+                operation: .sourceOver,
+                fraction: 1,
+                respectFlipped: true,
+                hints: nil
+            )
+            x += Self.badgeSymbolWidth + 3
+        }
+
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: Self.badgeFont,
+            .foregroundColor: NSColor.white
+        ]
+        let textSize = (badge.text as NSString).size(withAttributes: attributes)
+        (badge.text as NSString).draw(
+            at: CGPoint(x: x, y: frame.midY - textSize.height / 2),
+            withAttributes: attributes
+        )
+    }
+
+    private static func durationText(_ seconds: TimeInterval) -> String {
+        let safe = max(0, seconds)
+        if safe < 60 {
+            return String(format: "%.1fs", safe)
+        }
+        let total = Int(safe.rounded())
+        return String(format: "%d:%02d", total / 60, total % 60)
     }
 
     /// Matches the zoom blocks and playhead so the timeline has a single
@@ -737,10 +901,12 @@ final class RecordingClipTimelineControl: NSView {
         guard let selectedClipID,
               let baseRect = clipRect(for: selectedClipID),
               baseRect.width > 1 else { return nil }
+        // Kept inside the lane: the first and last clips sit against the
+        // enclosing scroll view's clip, which would cut an outset edge off.
         let outerRect = baseRect.insetBy(
             dx: -Metrics.selectionPadding,
             dy: -Metrics.selectionPadding
-        )
+        ).intersection(bounds)
         return (
             video: baseRect,
             outer: outerRect,

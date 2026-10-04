@@ -35,10 +35,6 @@ private enum StudioInspectorSelection: Hashable {
 }
 
 struct StudioInspector: View {
-    /// Whole-number playback rates offered for a clip, within
-    /// `RecordingClipSegment`'s 1...8 range.
-    private static let clipSpeedPresets: [Double] = [1, 2, 3, 4, 6, 8]
-
     @Bindable var model: RecordingStudioModel
     @State private var wallpaperStore = AnnotationWallpaperStore.shared
     @State private var stylePresetStore = RecordingStudioStylePresetStore.shared
@@ -61,9 +57,11 @@ struct StudioInspector: View {
                 .padding(.bottom, 12)
             }
             .onChange(of: selection) { _, selection in
-                // A timeline click lands its controls at the top of the list;
-                // bring them into view if the list was scrolled away.
-                guard selection != nil else { return }
+                // Clicking a zoom lands its controls at the top of the list;
+                // bring them into view if the list was scrolled away. Clip
+                // selection rides along with every scrub of the clip lane,
+                // so it never moves the list.
+                guard case .zoom = selection else { return }
                 withAnimation(.morphIfAllowed) {
                     proxy.scrollTo(Self.topID, anchor: .top)
                 }
@@ -596,11 +594,11 @@ struct StudioInspector: View {
                     InspectorGroupLabel("Speed")
 
                     InspectorSegmented(
-                        options: Self.clipSpeedPresets,
+                        options: RecordingClipSegment.speedPresets,
                         isSelected: { abs($0 - clip.speed) < 0.001 },
                         onTap: { model.setClipSpeed($0, forClipID: clip.id) },
                         label: { speed in
-                            Text(InspectorValueFormat.magnification(fractionDigits: 0).displayString(for: speed))
+                            Text(RecordingClipSegment.speedTitle(speed))
                                 .font(.inspectorSegment)
                         }
                     )
