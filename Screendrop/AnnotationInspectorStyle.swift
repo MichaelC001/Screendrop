@@ -31,10 +31,10 @@ enum InspectorMetrics {
 
     /// The one true height for every interactive field (scrub fields, menus,
     /// steppers, pickers, segmented controls).
-    static let controlHeight: CGFloat = 28
+    static let controlHeight: CGFloat = 32
     static let sliderHeight: CGFloat = controlHeight
     /// Corner radius for fields and segmented tracks.
-    static let fieldRadius: CGFloat = 7
+    static let fieldRadius: CGFloat = 8
     static let sliderRadius: CGFloat = fieldRadius
     /// Shared inner inset for compound controls such as segmented pickers,
     /// tool grids, and placement surfaces.
@@ -563,9 +563,11 @@ struct InspectorSectionDivider: View {
 
 // MARK: - Segmented control
 
-/// One unified segmented control used for every segmented picker in the panel.
-/// It shares the slider's height, radius, neutral track and value fill so choice
-/// controls and numeric controls read as one inspector system.
+/// One segmented control for every choice in the panel, in the look of
+/// Periscope's navigator tabs: a quiet capsule track with the selected option
+/// raised as a glass pill. The pill jumps to the new option rather than
+/// sliding. It keeps the inspector's one control height so it lines up with
+/// sliders and fields.
 struct InspectorSegmented<Option: Hashable, Label: View>: View {
     let options: [Option]
     let isSelected: (Option) -> Bool
@@ -575,30 +577,24 @@ struct InspectorSegmented<Option: Hashable, Label: View>: View {
     var height: CGFloat = InspectorMetrics.sliderHeight
     var equalWidths: Bool = true
 
-    @Environment(\.colorScheme) private var colorScheme
     @State private var hoveredOption: Option?
 
-    var body: some View {
-        let shape = RoundedRectangle(
-            cornerRadius: InspectorMetrics.sliderRadius,
-            style: .continuous
-        )
+    private static var inset: CGFloat { 3 }
 
+    var body: some View {
         HStack(spacing: 0) {
             ForEach(options, id: \.self) { option in
                 segment(for: option)
             }
         }
-        .padding(InspectorMetrics.controlInset)
+        .padding(Self.inset)
         .frame(height: height)
-        .background(shape.fill(trackFill))
-        .clipShape(shape)
+        .background(Capsule().fill(Color.primary.opacity(0.06)))
     }
 
     private func segment(for option: Option) -> some View {
         let selected = isSelected(option)
         let isHovering = hoveredOption == option
-        let segmentRadius = InspectorMetrics.sliderRadius - InspectorMetrics.controlInset
 
         return Button {
             onTap(option)
@@ -607,19 +603,17 @@ struct InspectorSegmented<Option: Hashable, Label: View>: View {
                 .frame(maxWidth: equalWidths ? .infinity : nil)
                 .frame(maxHeight: .infinity)
                 .padding(.horizontal, equalWidths ? 0 : 11)
-                .contentShape(RoundedRectangle(cornerRadius: segmentRadius, style: .continuous))
+                .background {
+                    if isHovering, !selected {
+                        Capsule().fill(InspectorControlPalette.hoverFill)
+                    }
+                }
+                .contentShape(Capsule())
+                .glassEffect(selected ? .regular.interactive() : .identity, in: Capsule())
         }
         .buttonStyle(.plain)
-        .foregroundStyle(selected ? InspectorControlPalette.selectedForeground : Color.secondary)
-        .background {
-            RoundedRectangle(cornerRadius: segmentRadius, style: .continuous)
-                .fill(segmentFill(isSelected: selected, isHovering: isHovering))
-                .shadow(
-                    color: selected ? InspectorControlPalette.selectedChipShadow(for: colorScheme) : .clear,
-                    radius: 1,
-                    y: 0.5
-                )
-        }
+        .focusEffectDisabled()
+        .foregroundStyle(selected ? Color.primary : Color.secondary)
         .onHover { isHovering in
             if isHovering {
                 hoveredOption = option
@@ -628,17 +622,6 @@ struct InspectorSegmented<Option: Hashable, Label: View>: View {
             }
         }
         .accessibilityAddTraits(selected ? .isSelected : [])
-    }
-
-    private var trackFill: Color {
-        InspectorControlPalette.trackFill(for: colorScheme)
-    }
-
-    private func segmentFill(isSelected: Bool, isHovering: Bool) -> Color {
-        if isSelected {
-            return InspectorControlPalette.selectedChipFill(for: colorScheme)
-        }
-        return isHovering ? InspectorControlPalette.hoverFill : .clear
     }
 }
 

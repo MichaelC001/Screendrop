@@ -124,9 +124,11 @@ struct AnnotationBackgroundInspector: View {
     }
 }
 
-/// The background fill browser shared by the annotator and Studio: a
-/// Color / Gradient / Wallpaper library switch over tile grids, with recent
-/// wallpapers, built-in packs and an add tile.
+/// The background fill browser shared by the annotator and Studio: Color,
+/// Gradient and Wallpaper tile grids, with recent wallpapers, built-in packs
+/// and an add tile. In the annotator's crowded inspector the three libraries
+/// sit behind glass tabs; where a page has the height (`stacked`), they are
+/// laid out one under another with no switch at all.
 struct InspectorBackgroundFillPicker: View {
     @Binding var style: AnnotationBackgroundStyle
     /// A wallpaper to keep visible in Recent even when the fill is currently
@@ -136,32 +138,57 @@ struct InspectorBackgroundFillPicker: View {
     let onEditorAction: () -> Void
     let onPickWallpaper: () -> Void
     var onSelectWallpaper: (AnnotationCustomWallpaper) -> Void = { _ in }
+    /// Shows every library at once instead of switching between them.
+    var stacked = false
 
     private let swatchColumns = Array(repeating: GridItem(.flexible(), spacing: 6), count: 8)
-    private static let maxVisibleRecentWallpapers = 4
-    private let recentWallpaperColumns = Array(repeating: GridItem(.flexible(), spacing: 6), count: 5)
+    /// Five recents plus the add tile fill two rows of the shared
+    /// three-column wallpaper grid.
+    private static let maxVisibleRecentWallpapers = 5
     private let wallpaperColumns = Array(repeating: GridItem(.flexible(), spacing: 7), count: 3)
     @State private var selectedWallpaperSourceID = AnnotationWallpaperSource.recentID
     @State private var selectedFillLibrary = AnnotationBackgroundFillLibrary.color
+    /// Packs unfolded past their first row in the stacked layout.
+    @State private var expandedPackIDs: Set<String> = []
 
     var body: some View {
-        VStack(alignment: .leading, spacing: InspectorMetrics.rowSpacing) {
-            InspectorSegmented(
-                options: AnnotationBackgroundFillLibrary.allCases,
-                isSelected: { $0 == selectedFillLibrary },
-                onTap: { library in
-                    withAnimation(.snappy(duration: 0.16)) {
-                        selectedFillLibrary = library
+        if stacked {
+            VStack(alignment: .leading, spacing: InspectorMetrics.groupSpacing) {
+                ForEach(AnnotationBackgroundFillLibrary.allCases, id: \.self) { library in
+                    if library == .wallpaper {
+                        // Wallpapers bring their own labels: Recent and
+                        // each pack.
+                        unfoldedWallpaperGroup
+                    } else {
+                        VStack(alignment: .leading, spacing: InspectorMetrics.groupLabelSpacing) {
+                            InspectorGroupLabel(library.title)
+                            fillPicker(for: library)
+                        }
                     }
-                },
-                label: { library in
-                    Text(library.title)
-                        .font(.inspectorSegment)
                 }
+            }
+        } else {
+            tabbedBody
+        }
+    }
+
+    private var tabbedBody: some View {
+        VStack(alignment: .leading, spacing: InspectorMetrics.rowSpacing) {
+            SegmentedTabs(
+                options: AnnotationBackgroundFillLibrary.allCases.map { ($0.title, $0) },
+                selection: Binding(
+                    get: { selectedFillLibrary },
+                    set: { library in
+                        withAnimation(.morphQuickIfAllowed) {
+                            selectedFillLibrary = library
+                        }
+                    }
+                )
             )
 
-            selectedFillPicker
-                .transition(.opacity)
+            fillPicker(for: selectedFillLibrary)
+                .id(selectedFillLibrary)
+                .transition(AnyTransition(.blurReplace))
         }
         .onAppear {
             syncFillLibrary(with: style)
@@ -179,8 +206,8 @@ struct InspectorBackgroundFillPicker: View {
     }
 
     @ViewBuilder
-    private var selectedFillPicker: some View {
-        switch selectedFillLibrary {
+    private func fillPicker(for library: AnnotationBackgroundFillLibrary) -> some View {
+        switch library {
         case .color:
             LazyVGrid(columns: swatchColumns, spacing: 6) {
                 ForEach(AnnotationBackgroundColor.plainPresets) { color in
@@ -231,42 +258,96 @@ struct InspectorBackgroundFillPicker: View {
     @ViewBuilder
     private var wallpaperGroup: some View {
         VStack(alignment: .leading, spacing: InspectorMetrics.groupLabelSpacing) {
-            InspectorSegmented(
-                options: wallpaperSources.map(\.id),
-                isSelected: { $0 == selectedWallpaperSourceID },
-                onTap: { id in
-                    onEditorAction()
-                    withAnimation(.snappy(duration: 0.16)) {
-                        selectedWallpaperSourceID = id
+            SegmentedTabs(
+                options: wallpaperSources.map { ($0.title, $0.id) },
+                selection: Binding(
+                    get: { selectedWallpaperSourceID },
+                    set: { id in
+                        onEditorAction()
+                        withAnimation(.morphQuickIfAllowed) {
+                            selectedWallpaperSourceID = id
+                        }
                     }
-                },
-                label: { id in
-                    Text(title(forSourceID: id))
-                        .font(.inspectorSegment)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.8)
-                }
+                )
             )
 
             if selectedWallpaperSourceID == AnnotationWallpaperSource.recentID {
                 recentWallpaperGrid
             } else if let pack = selectedPack {
-                let wallpapers = wallpaperStore.wallpapers(for: pack)
-                if wallpapers.isEmpty {
-                    AnnotationWallpaperPackInstallView(
-                        pack: pack,
-                        isInstalling: wallpaperStore.isInstalling(pack),
-                        errorMessage: wallpaperStore.errorMessage(for: pack)
-                    ) {
-                        Task { await wallpaperStore.installPack(pack) }
-                    }
-                } else {
-                    wallpaperGrid(wallpapers)
-                }
-
-                AnnotationWallpaperCreditView(pack: pack)
+                packContent(pack)
             }
         }
+    }
+
+    /// Every wallpaper source laid out in turn - Recent, then each pack under
+    /// its own label - for the stacked layout.
+    private var unfoldedWallpaperGroup: some View {
+        VStack(alignment: .leading, spacing: InspectorMetrics.groupSpacing) {
+            VStack(alignment: .leading, spacing: InspectorMetrics.groupLabelSpacing) {
+                InspectorGroupLabel(AnnotationWallpaperSourceOption.recent.title)
+                recentWallpaperGrid
+            }
+
+            ForEach(AnnotationWallpaperPack.builtIn, id: \.id) { pack in
+                VStack(alignment: .leading, spacing: InspectorMetrics.groupLabelSpacing) {
+                    packHeader(pack)
+                    packContent(pack, limit: expandedPackIDs.contains(pack.id) ? nil : Self.packPreviewCount)
+                }
+            }
+        }
+    }
+
+    /// One row of the three-column wallpaper grid.
+    private static let packPreviewCount = 3
+
+    /// The pack's name, with a quiet link that unfolds the rest of its
+    /// wallpapers in place when they run past the first row.
+    private func packHeader(_ pack: AnnotationWallpaperPack) -> some View {
+        let count = wallpaperStore.wallpapers(for: pack).count
+        let isExpanded = expandedPackIDs.contains(pack.id)
+        return HStack(spacing: 8) {
+            InspectorGroupLabel(pack.title)
+
+            Spacer(minLength: 0)
+
+            if count > Self.packPreviewCount {
+                Button {
+                    withAnimation(.morphIfAllowed) {
+                        if isExpanded {
+                            expandedPackIDs.remove(pack.id)
+                        } else {
+                            expandedPackIDs.insert(pack.id)
+                        }
+                    }
+                } label: {
+                    Text(isExpanded ? "Show Less" : "Show All \(count)")
+                        .font(.inspectorLabel)
+                        .foregroundStyle(Color.accentColor)
+                        .contentTransition(.interpolate)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func packContent(_ pack: AnnotationWallpaperPack, limit: Int? = nil) -> some View {
+        let all = wallpaperStore.wallpapers(for: pack)
+        let wallpapers = limit.map { Array(all.prefix($0)) } ?? all
+        if wallpapers.isEmpty {
+            AnnotationWallpaperPackInstallView(
+                pack: pack,
+                isInstalling: wallpaperStore.isInstalling(pack),
+                errorMessage: wallpaperStore.errorMessage(for: pack)
+            ) {
+                Task { await wallpaperStore.installPack(pack) }
+            }
+        } else {
+            wallpaperGrid(wallpapers)
+        }
+
+        AnnotationWallpaperCreditView(pack: pack)
     }
 
     private var wallpaperSources: [AnnotationWallpaperSourceOption] {
@@ -274,10 +355,6 @@ struct InspectorBackgroundFillPicker: View {
         + AnnotationWallpaperPack.builtIn.map { pack in
             AnnotationWallpaperSourceOption(id: pack.id, title: pack.title)
         }
-    }
-
-    private func title(forSourceID id: String) -> String {
-        wallpaperSources.first { $0.id == id }?.title ?? id
     }
 
     private var selectedPack: AnnotationWallpaperPack? {
@@ -303,7 +380,7 @@ struct InspectorBackgroundFillPicker: View {
     }
 
     private var recentWallpaperGrid: some View {
-        LazyVGrid(columns: recentWallpaperColumns, spacing: 6) {
+        LazyVGrid(columns: wallpaperColumns, spacing: 7) {
             wallpaperTiles(visibleRecentWallpapers)
 
             AnnotationAddWallpaperTile {
