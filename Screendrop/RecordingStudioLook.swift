@@ -3,9 +3,9 @@
 //  Screendrop
 //
 //  The pieces of Studio's Look page: the Styles strip, whose tiles are
-//  drawn from the recording's own frame; the one-line background row that
+//  drawn from the recording’s own frame, and the one-line background row that
 //  opens the full picker, previewing a fill on the video while the pointer
-//  rests on it; and the list of features, each row opening its own page.
+//  rests on it.
 //
 
 import AppKit
@@ -468,107 +468,5 @@ struct StudioStylePreview: View {
             }
             .frame(width: size.width, height: size.height)
         }
-    }
-}
-
-// MARK: - Features
-
-/// The list of things drawn over or done to the video, as one grouped
-/// surface. Each row's switch turns its feature on or off; anywhere else on
-/// the row opens the feature's page.
-struct StudioFeatureList<Rows: View>: View {
-    @ViewBuilder let rows: () -> Rows
-
-    var body: some View {
-        VStack(spacing: 0) {
-            rows()
-        }
-        .padding(2)
-        .background(
-            RoundedRectangle(cornerRadius: InspectorMetrics.fieldRadius + 2, style: .continuous)
-                .fill(InspectorControlPalette.trackFill(for: colorScheme))
-        )
-    }
-
-    @Environment(\.colorScheme) private var colorScheme
-}
-
-struct StudioFeatureRow: View {
-    let title: String
-    let systemImage: String
-    var summary: String? = nil
-    var isOn: Binding<Bool>? = nil
-    let action: () -> Void
-
-    @State private var isHovering = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    private var isActive: Bool { isOn?.wrappedValue ?? true }
-
-    var body: some View {
-        HStack(spacing: 6) {
-            Button(action: action) {
-                HStack(spacing: 8) {
-                    Image(systemName: systemImage)
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(isActive ? Palette.label : Palette.tertiaryLabel)
-                        .frame(width: 16)
-
-                    Text(title)
-                        .font(.inspectorValue)
-                        .foregroundStyle(isActive ? Palette.label.opacity(0.9) : Palette.secondaryLabel)
-                        .lineLimit(1)
-                        .fixedSize()
-
-                    Spacer(minLength: 4)
-
-                    if let summary, isActive {
-                        Text(summary)
-                            .font(.inspectorLabel)
-                            .foregroundStyle(Palette.tertiaryLabel)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                            .contentTransition(.numericText())
-                    }
-                }
-                .frame(maxWidth: .infinity, minHeight: InspectorMetrics.controlHeight, alignment: .leading)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(title)
-            .accessibilityValue(summary ?? "")
-            .accessibilityHint("Opens \(title) settings")
-
-            if let isOn {
-                InspectorToggle(
-                    "Show \(title.lowercased())",
-                    isOn: Binding(
-                        get: { isOn.wrappedValue },
-                        set: { value in
-                            withAnimation(reduceMotion ? nil : .morph) { isOn.wrappedValue = value }
-                        }
-                    )
-                )
-            }
-
-            Button(action: action) {
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 8, weight: .semibold))
-                    .foregroundStyle(.tertiary)
-                    .frame(width: 12, height: InspectorMetrics.controlHeight)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityHidden(true)
-        }
-        .padding(.leading, 8)
-        .padding(.trailing, 6)
-        .background {
-            if isHovering {
-                RoundedRectangle(cornerRadius: InspectorMetrics.fieldRadius, style: .continuous)
-                    .fill(InspectorControlPalette.hoverFill)
-            }
-        }
-        .onHover { isHovering = $0 }
     }
 }
