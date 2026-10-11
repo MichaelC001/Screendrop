@@ -25,25 +25,21 @@ struct CaptureLibraryView: View {
                                 Text(model.count(for: filter), format: .number)
                                     .foregroundStyle(.secondary)
                                     .font(.caption.monospacedDigit())
+                                    .contentTransition(.numericText())
                             }
-                        } icon: { Image(systemName: filter.symbol) }
+                        } icon: {
+                            Image(systemName: filter.symbol)
+                                .frame(width: 20, alignment: .center)
+                        }
+                        .listItemTint(.monochrome)
                         .tag(filter)
                     }
                 }
             }
             .listStyle(.sidebar)
             .navigationSplitViewColumnWidth(min: 180, ideal: 210, max: 280)
-            .safeAreaInset(edge: .bottom) {
-                Button {
-                    SettingsWindowController.show(tab: .general)
-                } label: {
-                    Label("Settings", systemImage: "gearshape")
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.vertical, 8)
-                }
-                .buttonStyle(.plain)
-                .padding(.horizontal, 20)
-                .padding(.bottom, 8)
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                LibrarySidebarFooter()
             }
             .modifier(LibrarySidebarSurface())
         } detail: {
@@ -59,8 +55,12 @@ struct CaptureLibraryView: View {
         .navigationSplitViewStyle(.balanced)
         .searchable(text: $model.searchText, placement: .toolbar, prompt: "Search captures")
         .inspector(isPresented: $inspectorVisible) {
-            CaptureLibraryInspector(model: model)
-                .inspectorColumnWidth(min: 240, ideal: 280, max: 360)
+            // Keep the inspector's ideal size out of the split view's
+            // constraint pass; its width belongs to the split view.
+            GeometryReader { _ in
+                CaptureLibraryInspector(model: model)
+            }
+            .inspectorColumnWidth(min: 240, ideal: 280, max: 360)
         }
         .toolbar { toolbar }
         .frame(minWidth: 860, minHeight: 540)
@@ -108,28 +108,44 @@ struct CaptureLibraryView: View {
 
     @ViewBuilder private var browser: some View {
         if model.items.isEmpty && model.isLoading {
-            ProgressView("Loading Library…").frame(maxWidth: .infinity, maxHeight: .infinity)
+            ProgressView().controlSize(.regular).frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if model.visibleItems.isEmpty {
             if !model.searchText.isEmpty {
-                ContentUnavailableView {
-                    Label("No Results", systemImage: "magnifyingglass")
-                } description: {
-                    Text("No matches for “\(model.searchText)” in \(activeFilter.title).")
-                } actions: {
-                    Button("Clear Search") { model.searchText = "" }
+                EmptyStateView(
+                    systemImage: "magnifyingglass",
+                    title: "No Results",
+                    message: "Nothing in \(activeFilter.title) matches “\(model.searchText)”."
+                ) {
+                    GlassCapsuleButton(title: "Clear Search", height: GlassMetrics.actionHeight) {
+                        model.searchText = ""
+                    }
                 }
             } else {
-                ContentUnavailableView {
-                    Label("No \(activeFilter == .all ? "Captures" : activeFilter.title)", systemImage: activeFilter.symbol)
-                } description: {
-                    Text(emptyLibraryDescription)
-                } actions: {
+                EmptyStateView(
+                    systemImage: activeFilter.symbol,
+                    title: "No \(activeFilter == .all ? "Captures" : activeFilter.title) Yet",
+                    message: emptyLibraryDescription
+                ) {
                     if activeFilter != .recordings {
-                        Button("Capture Area") { CaptureCoordinator.shared.captureArea() }
+                        GlassCapsuleButton(
+                            title: "Capture Area",
+                            systemImage: "rectangle.dashed",
+                            height: GlassMetrics.actionHeight,
+                            isProminent: activeFilter == .screenshots || activeFilter == .all
+                        ) {
+                            CaptureCoordinator.shared.captureArea()
+                        }
                     }
                     if activeFilter != .screenshots {
-                        Button("Record Screen") { RecordingPickerPresenter.shared.show() }
-                            .disabled(ScreenRecordingManager.shared.isActive)
+                        GlassCapsuleButton(
+                            title: "Record Screen",
+                            systemImage: "record.circle",
+                            height: GlassMetrics.actionHeight,
+                            isProminent: activeFilter == .recordings
+                        ) {
+                            RecordingPickerPresenter.shared.show()
+                        }
+                        .disabled(ScreenRecordingManager.shared.isActive)
                     }
                 }
             }
@@ -141,9 +157,9 @@ struct CaptureLibraryView: View {
 
     private var emptyLibraryDescription: String {
         switch activeFilter {
-        case .all: "Screenshots and recordings you capture will appear here."
-        case .screenshots: "Take a screenshot to start your screenshot library."
-        case .recordings: "Record your screen to start your recording library."
+        case .all: "Every screenshot and recording you take lands here, ready to annotate, edit and share."
+        case .screenshots: "Screenshots you take land here, ready to annotate and share."
+        case .recordings: "Recordings land here as editable projects, ready for Studio."
         }
     }
 
@@ -224,6 +240,41 @@ struct CaptureLibraryView: View {
             .keyboardShortcut("i", modifiers: [.command, .option])
             .help(inspectorVisible ? "Hide Inspector" : "Show Inspector")
         }
+    }
+}
+
+/// Settings, plus a reminder of the shortcut that fills the Library.
+private struct LibrarySidebarFooter: View {
+    @State private var isHovering = false
+
+    var body: some View {
+        Button {
+            SettingsWindowController.show(tab: .general)
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "gearshape.fill")
+                    .font(.system(size: 12, weight: .semibold))
+                    .frame(width: 20)
+                Text("Settings")
+                    .font(.system(size: 13))
+                Spacer(minLength: 0)
+                KeyCaps(tokens: ["⌘", ","], isSmall: true)
+                    .opacity(isHovering ? 1 : 0)
+            }
+            .foregroundStyle(Palette.label)
+            .padding(.horizontal, 10)
+            .frame(height: 30)
+            .background(
+                isHovering ? Palette.hoverFill : .clear,
+                in: RoundedRectangle(cornerRadius: Radius.field, style: .continuous)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
+        .motion(.morphQuick, value: isHovering)
+        .padding(.horizontal, 10)
+        .padding(.bottom, 10)
     }
 }
 

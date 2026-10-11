@@ -181,18 +181,21 @@ final class LibraryCollectionView: NSCollectionView {
 
 final class LibraryCollectionLayout: NSCollectionViewFlowLayout {
     var displayLayout: CaptureLibraryLayout = .grid
+    private static let targetCellWidth: CGFloat = 210
 
     override func prepare() {
         let width = max(200, collectionView?.enclosingScrollView?.contentSize.width ?? 800)
-        sectionInset = NSEdgeInsets(top: 16, left: 16, bottom: 16, right: 16)
-        minimumInteritemSpacing = 16
-        minimumLineSpacing = displayLayout == .grid ? 16 : 6
+        sectionInset = NSEdgeInsets(top: 12, left: 14, bottom: 20, right: 14)
+        minimumInteritemSpacing = 6
+        minimumLineSpacing = displayLayout == .grid ? 6 : 2
         if displayLayout == .grid {
-            let columns = min(3, max(1, floor((width - 16) / 236)))
-            let cellWidth = floor((width - 32 - (columns - 1) * 16) / columns)
-            itemSize = CGSize(width: cellWidth, height: floor(cellWidth * 0.625) + 62)
+            // Columns follow the window: as many ~210pt cells as fit.
+            let usable = width - 28
+            let columns = max(1, floor((usable + 6) / (Self.targetCellWidth + 6)))
+            let cellWidth = floor((usable - (columns - 1) * 6) / columns)
+            itemSize = CGSize(width: cellWidth, height: floor((cellWidth - 12) * 0.66) + 12 + 46)
         } else {
-            itemSize = CGSize(width: width - 32, height: 76)
+            itemSize = CGSize(width: width - 28, height: 64)
         }
         super.prepare()
     }
@@ -247,6 +250,11 @@ struct LibraryCellContent: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isHovering = false
 
+    /// The cell's inset around its thumbnail; the cell's corner is the
+    /// thumbnail's plus this, so the two stay concentric.
+    private static let inset: CGFloat = 6
+    private static var cellRadius: CGFloat { Radius.nested(inner: Radius.thumbnail, padding: inset) }
+
     var body: some View {
         Group {
             if let item {
@@ -257,35 +265,37 @@ struct LibraryCellContent: View {
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                             labels(item)
                                 .padding(.horizontal, 4)
-                                .padding(.bottom, 4)
+                                .padding(.bottom, 2)
                         }
                     } else {
-                        HStack(spacing: 14) {
-                            thumbnail(item).frame(width: 88, height: 58)
+                        HStack(spacing: 12) {
+                            thumbnail(item).frame(width: 76, height: 50)
                             labels(item)
                             Spacer(minLength: 8)
                             Text(item.kindTitle)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                                .font(.dsCaption)
+                                .foregroundStyle(Palette.secondaryLabel)
                                 .padding(.trailing, 8)
                         }
                     }
                 }
-                .padding(6)
+                .padding(Self.inset)
                 .background(
-                    Color.primary.opacity(selected ? 0.075 : isHovering ? 0.035 : 0.012),
-                    in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    selected ? Palette.selectedFill : isHovering ? Palette.fill : .clear,
+                    in: RoundedRectangle(cornerRadius: Self.cellRadius, style: .continuous)
                 )
                 .overlay {
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .strokeBorder(
-                            Color.primary.opacity(selected ? (contrast == .increased ? 0.65 : 0.28) : 0.08),
-                            lineWidth: selected ? 1 : 0.5
-                        )
+                    if selected {
+                        RoundedRectangle(cornerRadius: Self.cellRadius, style: .continuous)
+                            .strokeBorder(
+                                Palette.accent.opacity(contrast == .increased ? 0.7 : 0.35),
+                                lineWidth: 1
+                            )
+                    }
                 }
                 .onHover { isHovering = $0 }
                 .onChange(of: item.id) { _, _ in isHovering = false }
-                .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: selected)
+                .animation(reduceMotion ? nil : .morphQuick, value: selected)
                 .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: isHovering)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("\(item.name), \(item.kindTitle), \(item.subtitle)")
@@ -296,31 +306,49 @@ struct LibraryCellContent: View {
     }
 
     private func labels(_ item: CaptureLibraryItem) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 5) {
-                Text(item.name).font(.system(size: 13, weight: .medium)).lineLimit(1).truncationMode(.middle)
-                if item.cloudURL != nil { Image(systemName: "link").foregroundStyle(.secondary) }
-                if item.hasDraft { Image(systemName: "circle.fill").font(.system(size: 6)).foregroundStyle(.orange) }
+                Text(item.name)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Palette.label)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                if item.cloudURL != nil {
+                    Image(systemName: "link")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(Palette.secondaryLabel)
+                }
+                if item.hasDraft {
+                    Circle()
+                        .fill(Palette.warning)
+                        .frame(width: 5, height: 5)
+                        .help("Unsaved edits")
+                }
             }
-            Text(item.subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            Text(item.subtitle)
+                .font(.dsCaption)
+                .foregroundStyle(Palette.secondaryLabel)
+                .lineLimit(1)
         }
     }
 
     private func thumbnail(_ item: CaptureLibraryItem) -> some View {
         CaptureLibraryThumbnail(item: item)
-            .clipShape(.rect(cornerRadius: 10))
-            .overlay {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5)
-            }
+            .clipShape(.rect(cornerRadius: Radius.thumbnail, style: .continuous))
+            .hairline(radius: Radius.thumbnail, opacity: 0.08)
             .overlay(alignment: .bottomTrailing) {
                 if item.isVideo {
-                    Label(item.durationText, systemImage: "play.fill")
-                        .font(.system(size: 10, weight: .medium).monospacedDigit())
-                        .padding(.horizontal, 5).padding(.vertical, 3)
-                        .foregroundStyle(.white)
-                        .background(.black.opacity(0.65), in: Capsule())
-                        .padding(7)
+                    HStack(spacing: 3) {
+                        Image(systemName: "play.fill")
+                            .font(.system(size: 7, weight: .bold))
+                        Text(item.durationText)
+                            .font(.system(size: 10, weight: .semibold).monospacedDigit())
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 6)
+                    .frame(height: 18)
+                    .background(.black.opacity(0.55), in: Capsule())
+                    .padding(6)
                 }
             }
     }

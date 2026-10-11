@@ -484,14 +484,15 @@ struct EmptyStateView<Actions: View>: View {
                 .foregroundStyle(Palette.secondaryLabel)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 300)
-                .fixedSize(horizontal: false, vertical: true)
 
-            GlassEffectContainer(spacing: GlassMetrics.containerSpacing) {
-                HStack(spacing: GlassMetrics.gap) {
-                    actions()
+            if Actions.self != EmptyView.self {
+                GlassEffectContainer(spacing: GlassMetrics.containerSpacing) {
+                    HStack(spacing: GlassMetrics.gap) {
+                        actions()
+                    }
                 }
+                .padding(.top, Space.s)
             }
-            .padding(.top, Space.s)
         }
         .padding(Space.xxxl)
         .frame(maxWidth: .infinity, maxHeight: .infinity)

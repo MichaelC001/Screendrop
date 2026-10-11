@@ -1,59 +1,54 @@
 import AppKit
 import SwiftUI
 
+/// The Library's inspector: a large preview of the selection, its details,
+/// and a footer of actions built like the editors' footers - one prominent
+/// capsule for the main action, glass buttons for the rest.
 struct CaptureLibraryInspector: View {
     let model: CaptureLibraryModel
     @State private var byteCount: Int64?
     @State private var pendingCloudDelete: CaptureLibraryItem?
     @State private var pendingCloudUpload: CaptureLibraryItem?
-    @State private var tooltip = BarTooltipModel()
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Namespace private var glass
     private var items: [CaptureLibraryItem] { model.selectedItems }
 
     var body: some View {
         Group {
             if items.isEmpty {
-                VStack(spacing: 12) {
-                    Image(systemName: "photo.on.rectangle.angled")
-                        .font(.system(size: 28, weight: .light))
-                        .foregroundStyle(.tertiary)
-                    Text("Capture details")
-                        .font(.headline)
-                    Text("Select a screenshot or recording\nto take a closer look.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                }
-                .padding(24)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                EmptyStateView(
+                    systemImage: "photo.on.rectangle.angled",
+                    title: "No Selection",
+                    message: "Select a screenshot or recording to see its details."
+                )
+                .transition(.opacity)
             } else {
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 22) {
+                    VStack(alignment: .leading, spacing: 0) {
                         if items.count == 1, let item = items.first {
                             header(item)
-                            Divider()
+                            InspectorGroupBreak()
                             information(item)
                         } else {
                             multipleSelection
                         }
                     }
-                    .padding(18)
+                    .padding(.top, InspectorMetrics.horizontalPadding)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
+                .scrollEdgeEffectSoftIfAvailable()
+                .transition(.opacity)
             }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            if !items.isEmpty { actionBar }
+            if !items.isEmpty {
+                actionFooter
+                    .transition(.rise)
+            }
         }
-        .environment(tooltip)
+        .motion(.morph, value: items.isEmpty)
         .onChange(of: items.map(\.id)) { _, _ in
-            tooltip.dismiss()
             pendingCloudUpload = nil
         }
-        .onChange(of: model.isBusy) { _, isBusy in
-            if isBusy { tooltip.dismiss() }
-        }
-        .onDisappear { tooltip.dismiss() }
         .task(id: items.map(\.thumbnailKey)) {
             byteCount = nil
             let urls = items.map(\.ownedURL)
@@ -79,143 +74,55 @@ struct CaptureLibraryInspector: View {
         }
     }
 
+    // MARK: Header
+
     private func header(_ item: CaptureLibraryItem) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: Space.l) {
             Button { model.perform(.preview) } label: {
                 CaptureLibraryThumbnail(item: item)
                     .aspectRatio(1.45, contentMode: .fit)
-                    .clipShape(.rect(cornerRadius: 11))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 11, style: .continuous)
-                            .strokeBorder(Color.primary.opacity(0.1), lineWidth: 0.5)
-                    }
+                    .clipShape(.rect(cornerRadius: Radius.card, style: .continuous))
+                    .hairline(radius: Radius.card)
                     .overlay(alignment: .bottomTrailing) {
                         Image(systemName: item.isVideo ? "play.fill" : "arrow.up.left.and.arrow.down.right")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(.white)
-                            .padding(8)
-                            .background(.black.opacity(0.55), in: Circle())
-                            .padding(10)
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundStyle(Palette.label)
+                            .frame(width: 28, height: 28)
+                            .glassEffect(.regular.interactive(), in: .circle)
+                            .padding(Space.m)
                     }
             }
             .buttonStyle(.plain)
             .disabled(model.isBusy)
             .accessibilityLabel("Quick Look \(item.name)")
-            .help("Open a large preview")
+            .help("Quick Look (Space)")
 
-            VStack(alignment: .leading, spacing: 7) {
+            VStack(alignment: .leading, spacing: Space.s) {
                 Text(item.name)
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(.dsTitle)
+                    .foregroundStyle(Palette.label)
                     .lineLimit(3)
                     .truncationMode(.middle)
                     .textSelection(.enabled)
-                HStack(spacing: 8) {
-                    Text(item.kindTitle)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                HStack(spacing: Space.s) {
+                    Tag(text: item.kindTitle, systemImage: item.isVideo ? "film" : "photo")
                     if item.hasDraft {
-                        statusBadge("Draft", symbol: "circle.lefthalf.filled")
+                        Tag(text: "Unsaved Edits", systemImage: "circle.lefthalf.filled", tint: Palette.warning)
                     } else if item.hasEdits {
-                        statusBadge("Edited", symbol: "slider.horizontal.3")
+                        Tag(text: "Edited", systemImage: "slider.horizontal.3")
+                    }
+                    if item.cloudURL != nil {
+                        Tag(text: "Shared", systemImage: "link")
                     }
                 }
             }
         }
-    }
-
-    /// A fixed Finder-style action strip. All controls use the same icon size,
-    /// hit area and hover surface, including the native menu trigger.
-    private var actionBar: some View {
-        HStack(spacing: 0) {
-            actionButton(
-                .edit, id: .libraryEdit,
-                title: items.first?.isVideo == true ? "Edit Recording" : "Annotate Screenshot",
-                symbol: items.first?.isVideo == true ? "film" : "pencil.tip.crop.circle"
-            )
-            .disabled(items.count != 1)
-            actionButton(.copy, id: .libraryCopy, title: "Copy", symbol: "doc.on.doc")
-            actionButton(.export, id: .libraryExport, title: "Export", symbol: "square.and.arrow.up")
-            if CloudUploader.shared.isConfigured || items.contains(where: { $0.cloudURL != nil }) {
-                cloudAction
-            }
-            moreActions(allowsRename: items.count == 1)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
-        .disabled(model.isBusy)
-        .coordinateSpace(name: LibraryInspectorActionChrome.coordinateSpace)
-        .overlay(alignment: .topLeading) {
-            GeometryReader { geometry in
-                if let target = tooltip.visible {
-                    let width = geometry.size.width
-                    let verticalOffset = -(BarTooltip.gap + BarTooltip.pillHeight)
-                    BarTooltipPill(text: target.text)
-                        .visualEffect { content, pill in
-                            // Keep the end controls' tooltips inside the narrow inspector.
-                            content.offset(
-                                x: max(8, min(target.frame.midX - pill.size.width / 2,
-                                              width - pill.size.width - 8)),
-                                y: verticalOffset
-                            )
-                        }
-                }
-            }
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
-            .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: tooltip.visible?.id)
-            .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: tooltip.visible?.text)
-        }
-    }
-
-    private func actionButton(_ action: CaptureLibraryAction, id: BarTooltipID, title: String, symbol: String) -> some View {
-        Button {
-            tooltip.dismiss()
-            model.perform(action)
-        } label: {
-            actionIcon(symbol)
-                .modifier(LibraryInspectorActionChrome(id: id, title: title))
-        }
-        .buttonStyle(BarButtonStyle())
-        .accessibilityLabel(title)
-    }
-
-    private var cloudAction: some View {
-        let item = items.count == 1 ? items.first : nil
-        let isShared = item?.cloudURL != nil
-        let title = isShared ? "Copy Cloud Link" : "Share to Cloud"
-        return Button {
-            tooltip.dismiss()
-            guard let item else { return }
-            if isShared {
-                model.copyLink(item)
-            } else {
-                pendingCloudUpload = item
-            }
-        } label: {
-            actionIcon(isShared ? "link" : "icloud.and.arrow.up")
-                .modifier(LibraryInspectorActionChrome(id: .libraryCloud, title: title))
-        }
-        .buttonStyle(BarButtonStyle())
-        .accessibilityLabel(title)
-        .disabled(item == nil)
-        .popover(item: $pendingCloudUpload, arrowEdge: .top) { item in
-            CloudUploadOptionsPopover(suggestedTitle: item.name) { options in
-                model.upload(item, options: options)
-            }
-        }
-    }
-
-    private func actionIcon(_ symbol: String) -> some View {
-        Image(systemName: symbol)
-            .font(.system(size: 17, weight: .regular))
-            .foregroundStyle(.secondary)
-            .frame(width: 22, height: 22)
+        .padding(.horizontal, InspectorMetrics.horizontalPadding)
     }
 
     private func information(_ item: CaptureLibraryItem) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            sectionTitle("Information")
-            VStack(spacing: 11) {
+        InspectorSection("Information") {
+            VStack(spacing: InspectorMetrics.rowSpacing) {
                 detailRow("Dimensions", value: item.dimensions)
                 if item.isVideo { detailRow("Duration", value: item.durationText) }
                 detailRow("Size on disk", value: sizeText)
@@ -226,27 +133,37 @@ struct CaptureLibraryInspector: View {
     }
 
     private var multipleSelection: some View {
-        VStack(alignment: .leading, spacing: 22) {
-            VStack(alignment: .leading, spacing: 14) {
-                HStack(spacing: 6) {
-                    ForEach(Array(items.prefix(3))) { item in
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: Space.l) {
+                // A loose fan of the first few, so a multi-selection reads
+                // as a stack of captures rather than a list.
+                ZStack {
+                    ForEach(Array(items.prefix(3).enumerated().reversed()), id: \.element.id) { index, item in
                         CaptureLibraryThumbnail(item: item)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 68)
-                            .clipShape(.rect(cornerRadius: 8))
-                            .overlay {
-                                RoundedRectangle(cornerRadius: 8)
-                                    .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5)
-                            }
+                            .aspectRatio(1.45, contentMode: .fit)
+                            .clipShape(.rect(cornerRadius: Radius.card, style: .continuous))
+                            .hairline(radius: Radius.card)
+                            .shadow(color: .black.opacity(0.12), radius: 6, y: 3)
+                            .scaleEffect(1 - CGFloat(index) * 0.06)
+                            .rotationEffect(.degrees(Double(index) * (index.isMultiple(of: 2) ? 3.5 : -3.5)))
+                            .offset(y: -CGFloat(index) * 8)
                     }
                 }
-                Text("\(items.count) captures selected")
-                    .font(.system(size: 16, weight: .semibold))
+                .padding(.top, Space.l)
+                .padding(.horizontal, Space.m)
+                .motion(value: items.count)
+
+                Text("\(items.count) Captures")
+                    .font(.dsTitle)
+                    .foregroundStyle(Palette.label)
+                    .contentTransition(.numericText())
             }
-            Divider()
-            VStack(alignment: .leading, spacing: 14) {
-                sectionTitle("Selection")
-                VStack(spacing: 11) {
+            .padding(.horizontal, InspectorMetrics.horizontalPadding)
+
+            InspectorGroupBreak()
+
+            InspectorSection("Selection") {
+                VStack(spacing: InspectorMetrics.rowSpacing) {
                     detailRow("Screenshots", value: "\(items.filter { !$0.isVideo }.count)")
                     detailRow("Recordings", value: "\(items.filter(\.isVideo).count)")
                     detailRow("Size on disk", value: sizeText)
@@ -255,15 +172,102 @@ struct CaptureLibraryInspector: View {
         }
     }
 
-    private func moreActions(allowsRename: Bool) -> some View {
+    private func detailRow(_ title: String, value: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Text(title)
+                .font(.inspectorLabel)
+                .foregroundStyle(Palette.secondaryLabel)
+                .fixedSize(horizontal: true, vertical: false)
+            Spacer(minLength: 0)
+            Text(value)
+                .font(.inspectorValue)
+                .foregroundStyle(Palette.label)
+                .multilineTextAlignment(.trailing)
+                .textSelection(.enabled)
+                .contentTransition(.numericText())
+        }
+    }
+
+    private var sizeText: String {
+        byteCount.map { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) } ?? "Calculating…"
+    }
+
+    // MARK: Footer
+
+    private var actionFooter: some View {
+        let single = items.count == 1 ? items.first : nil
+        return GlassEffectContainer(spacing: GlassMetrics.containerSpacing) {
+            HStack(spacing: GlassMetrics.gap) {
+                GlassActionCapsule(
+                    title: single?.isVideo == true ? "Edit" : "Annotate",
+                    systemImage: single?.isVideo == true ? "film" : "pencil.tip.crop.circle",
+                    isProminent: true
+                ) {
+                    model.perform(.edit)
+                }
+                .disabled(single == nil)
+                .glassEffectID("edit", in: glass)
+
+                GlassConfirmButton(
+                    systemImage: "doc.on.doc",
+                    help: "Copy (⌘C)",
+                    size: GlassMetrics.actionHeight
+                ) {
+                    model.perform(.copy)
+                }
+                .glassEffectID("copy", in: glass)
+
+                if CloudUploader.shared.isConfigured || items.contains(where: { $0.cloudURL != nil }) {
+                    cloudButton(single)
+                        .glassEffectID("cloud", in: glass)
+                }
+
+                moreMenu(single)
+                    .glassEffectID("more", in: glass)
+            }
+        }
+        .padding(.horizontal, InspectorMetrics.horizontalPadding)
+        .padding(.top, 10)
+        .padding(.bottom, 16)
+        .disabled(model.isBusy)
+    }
+
+    @ViewBuilder
+    private func cloudButton(_ item: CaptureLibraryItem?) -> some View {
+        if let item, item.cloudURL != nil {
+            GlassConfirmButton(
+                systemImage: "link",
+                help: "Copy Cloud Link",
+                size: GlassMetrics.actionHeight
+            ) {
+                model.copyLink(item)
+            }
+        } else {
+            GlassIconButton(
+                systemImage: "icloud.and.arrow.up",
+                help: "Share to Cloud",
+                size: GlassMetrics.actionHeight
+            ) {
+                pendingCloudUpload = item
+            }
+            .disabled(item == nil)
+            .popover(item: $pendingCloudUpload, arrowEdge: .top) { item in
+                CloudUploadOptionsPopover(suggestedTitle: item.name) { options in
+                    model.upload(item, options: options)
+                }
+            }
+        }
+    }
+
+    private func moreMenu(_ item: CaptureLibraryItem?) -> some View {
         Menu {
-            if allowsRename {
+            Button("Export…", systemImage: "square.and.arrow.up") { model.perform(.export) }
+            if item != nil {
                 Button("Rename…", systemImage: "pencil") { model.perform(.rename) }
             }
             Button("Reveal in Finder", systemImage: "folder") { model.perform(.reveal) }
-            if items.count == 1, let item = items.first, let link = item.cloudURL {
+            if let item, let link = item.cloudURL {
                 Divider()
-                Button("Copy Cloud Link", systemImage: "link") { model.copyLink(item) }
                 if let url = URL(string: link) {
                     Link(destination: url) { Label("Open Shared Capture", systemImage: "arrow.up.right") }
                 }
@@ -274,84 +278,18 @@ struct CaptureLibraryInspector: View {
             Divider()
             Button("Move to Trash…", systemImage: "trash", role: .destructive) { model.perform(.trash) }
         } label: {
-            actionIcon("ellipsis")
-                .modifier(LibraryInspectorActionChrome(id: .libraryMore, title: "More Actions"))
+            Image(systemName: "ellipsis")
+                .font(.system(size: GlassMetrics.symbolSize, weight: .semibold))
+                .foregroundStyle(Palette.label)
+                .frame(width: GlassMetrics.actionHeight, height: GlassMetrics.actionHeight)
+                .contentShape(Circle())
         }
         .menuStyle(.button)
-        .buttonStyle(BarButtonStyle())
         .menuIndicator(.hidden)
-        .simultaneousGesture(TapGesture().onEnded { tooltip.dismiss() })
+        .buttonStyle(.plain)
+        .fixedSize()
+        .glassEffect(.regular.interactive(), in: .circle)
+        .help("More Actions")
         .accessibilityLabel("More capture actions")
-    }
-
-    private func sectionTitle(_ title: String) -> some View {
-        Text(title)
-            .font(.system(size: 11, weight: .semibold))
-            .foregroundStyle(.secondary)
-    }
-
-    private func detailRow(_ title: String, value: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 12) {
-            Text(title).foregroundStyle(.secondary).fixedSize(horizontal: true, vertical: false)
-            Spacer(minLength: 0)
-            Text(value).multilineTextAlignment(.trailing).textSelection(.enabled)
-        }
-        .font(.system(size: 12))
-    }
-
-    private func statusBadge(_ title: String, symbol: String) -> some View {
-        Label(title, systemImage: symbol)
-            .font(.system(size: 10, weight: .medium))
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 7)
-            .padding(.vertical, 3)
-            .background(Color.primary.opacity(0.055), in: Capsule())
-    }
-
-    private var sizeText: String {
-        byteCount.map { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) } ?? "Calculating…"
-    }
-}
-
-private struct LibraryInspectorActionChrome: ViewModifier {
-    static let coordinateSpace = "libraryInspectorActions"
-    let id: BarTooltipID
-    let title: String
-    @Environment(\.isEnabled) private var isEnabled
-    @Environment(BarTooltipModel.self) private var tooltip
-    @State private var isHovering = false
-    @State private var frame: CGRect = .zero
-
-    func body(content: Content) -> some View {
-        content
-            // Size the actual control label, so its whole slot shares the
-            // same click, hover and tooltip area, including the empty space.
-            .frame(minWidth: 40, maxWidth: .infinity)
-            .frame(height: 36)
-            .background(
-                Color.primary.opacity(isHovering && isEnabled ? 0.06 : 0),
-                in: RoundedRectangle(cornerRadius: 8, style: .continuous)
-            )
-            .contentShape(Rectangle())
-            .onGeometryChange(for: CGRect.self) { geometry in
-                geometry.frame(in: .named(Self.coordinateSpace))
-            } action: { frame in
-                self.frame = frame
-            }
-            .onHover { hovering in
-                isHovering = hovering
-                updateTooltip()
-            }
-            .onChange(of: title) { _, _ in updateTooltip() }
-            .onChange(of: isEnabled) { _, _ in updateTooltip() }
-            .onDisappear { tooltip.endHover(id: id) }
-    }
-
-    private func updateTooltip() {
-        if isHovering && isEnabled {
-            tooltip.hover(id: id, text: title, frame: frame)
-        } else {
-            tooltip.endHover(id: id)
-        }
     }
 }
