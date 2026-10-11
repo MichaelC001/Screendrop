@@ -113,14 +113,14 @@ struct StudioInspector: View {
         if let cue = model.selectedCue {
             VStack(spacing: 0) {
                 selectedZoomSection(for: cue)
-                StudioGroupBreak()
+                InspectorGroupBreak()
             }
             .id(selection)
             .transition(AnyTransition(.blurReplace).combined(with: .move(edge: .top)).combined(with: .opacity))
         } else if let clip = model.selectedClip {
             VStack(spacing: 0) {
                 selectedClipSection(for: clip)
-                StudioGroupBreak()
+                InspectorGroupBreak()
             }
             .id(selection)
             .transition(AnyTransition(.blurReplace).combined(with: .move(edge: .top)).combined(with: .opacity))
@@ -134,13 +134,13 @@ struct StudioInspector: View {
     @ViewBuilder
     private var sections: some View {
         // Look
-        StudioSection("Canvas") {
+        InspectorSection("Canvas") {
             canvasControls
         }
 
         backgroundSection
 
-        StudioSection(
+        InspectorSection(
             "Frame",
             accessory: {
                 if !usesDefaultLayout {
@@ -159,20 +159,20 @@ struct StudioInspector: View {
         }
 
         if model.hasCameraVideo {
-            StudioSection("Camera", isOn: $model.style.camera.isVisible, toggleTitle: "Show camera") {
+            InspectorSection("Camera", isOn: $model.style.camera.isVisible, toggleTitle: "Show camera") {
                 cameraControls
             }
         }
 
         // Motion
-        StudioGroupBreak()
+        InspectorGroupBreak()
 
-        StudioSection("Zoom", isOn: $model.zoomEnabled, toggleTitle: "Enable zooms") {
+        InspectorSection("Zoom", isOn: $model.zoomEnabled, toggleTitle: "Enable zooms") {
             zoomControls
         }
 
         if model.pointerIsSynthesized {
-            StudioSection(
+            InspectorSection(
                 "Cursor",
                 isOn: Binding(
                     get: { !model.style.hidesCursor },
@@ -197,7 +197,7 @@ struct StudioInspector: View {
 
         // Text
         if model.canTranscribe || model.hasSubtitles || model.hasKeystrokes || model.hasSpedUpClips {
-            StudioGroupBreak()
+            InspectorGroupBreak()
         }
 
         if model.canTranscribe || model.hasSubtitles {
@@ -205,27 +205,27 @@ struct StudioInspector: View {
         }
 
         if model.hasKeystrokes {
-            StudioSection("Keystrokes", isOn: $model.showsKeystrokes, toggleTitle: "Show keystrokes") {
+            InspectorSection("Keystrokes", isOn: $model.showsKeystrokes, toggleTitle: "Show keystrokes") {
                 keystrokeControls
             }
         }
 
         // Only offered once some clip actually plays faster than recorded.
         if model.hasSpedUpClips {
-            StudioSection("Speed Badge", isOn: $model.showsSpeedBadge, toggleTitle: "Show speed badge") {
+            InspectorSection("Speed Badge", isOn: $model.showsSpeedBadge, toggleTitle: "Show speed badge") {
                 speedBadgeControls
             }
             .transition(AnyTransition(.blurReplace).combined(with: .opacity))
         }
 
         // Sound
-        StudioGroupBreak()
+        InspectorGroupBreak()
 
         audioSection
     }
 
     private var backgroundSection: some View {
-        StudioSection(
+        InspectorSection(
             "Background",
             accessory: {
                 if model.style.background != .none {
@@ -252,11 +252,11 @@ struct StudioInspector: View {
     @ViewBuilder
     private var captionsSection: some View {
         if model.hasSubtitles, case .idle = model.transcriptionState {
-            StudioSection("Captions", isOn: $model.showsSubtitles, toggleTitle: "Show subtitles") {
+            InspectorSection("Captions", isOn: $model.showsSubtitles, toggleTitle: "Show subtitles") {
                 transcriptionControls
             }
         } else {
-            StudioSection(
+            InspectorSection(
                 "Captions",
                 accessory: {
                     if model.transcriptionState.isTranscribing {
@@ -273,7 +273,7 @@ struct StudioInspector: View {
     }
 
     private var audioSection: some View {
-        StudioSection(
+        InspectorSection(
             "Audio",
             accessory: {
                 if model.replacementAudio != nil {
@@ -455,7 +455,7 @@ struct StudioInspector: View {
     /// Its switch turns this zoom on or off; the close button lets go of the
     /// selection.
     private func selectedZoomSection(for selected: ZoomCue) -> some View {
-        StudioSection(
+        InspectorSection(
             title: "Selected Zoom",
             symbol: selected.anchorMode == .pinnedAnchor ? "scope" : "plus.magnifyingglass",
             accessory: {
@@ -601,7 +601,7 @@ struct StudioInspector: View {
     }
 
     private func selectedClipSection(for clip: RecordingClipSegment) -> some View {
-        StudioSection(
+        InspectorSection(
             title: "Selected Clip",
             symbol: "film",
             accessory: {
@@ -1070,121 +1070,6 @@ struct StudioInspector: View {
 
     private var sidebarBackground: Color {
         InspectorControlPalette.panelBackground(for: colorScheme)
-    }
-}
-
-// MARK: - Section
-
-/// The break between groups of related sections: more air than separates
-/// sections within a group, and no rule - the inspector divides by
-/// whitespace alone.
-private struct StudioGroupBreak: View {
-    var body: some View {
-        Color.clear
-            .frame(height: 16)
-            .accessibilityHidden(true)
-    }
-}
-
-/// One inspector group: a muted title, an optional switch, and a body that
-/// folds away with a blur when the switch turns the feature off. Sections are
-/// separated by whitespace alone, like the rest of the inspector system.
-private struct StudioSection<Content: View, Accessory: View>: View {
-    let title: String
-    var isOn: Binding<Bool>?
-    var toggleTitle = ""
-    /// An accent glyph before the title, marking sections that edit a
-    /// selection rather than the whole recording.
-    var symbol: String? = nil
-    @ViewBuilder var accessory: () -> Accessory
-    @ViewBuilder var content: () -> Content
-
-    private var showsContent: Bool { isOn?.wrappedValue ?? true }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if !title.isEmpty || isOn != nil {
-                HStack(spacing: 6) {
-                    if let symbol {
-                        Image(systemName: symbol)
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(Palette.highlight)
-                    }
-
-                    Text(title)
-                        .font(.inspectorSectionHeader)
-                        .foregroundStyle(showsContent ? Color.primary.opacity(0.85) : Color.secondary)
-
-                    Spacer(minLength: 0)
-
-                    accessory()
-
-                    if let isOn {
-                        InspectorToggle(
-                            toggleTitle,
-                            isOn: Binding(
-                                get: { isOn.wrappedValue },
-                                set: { value in
-                                    withAnimation(.morphIfAllowed) { isOn.wrappedValue = value }
-                                }
-                            )
-                        )
-                    }
-                }
-                .frame(minHeight: 24)
-            }
-
-            if showsContent {
-                content()
-                    .padding(.top, title.isEmpty && isOn == nil ? 0 : InspectorMetrics.headerSpacing)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .transition(
-                        AnyTransition(.blurReplace)
-                            .combined(with: .move(edge: .top))
-                            .combined(with: .opacity)
-                    )
-            }
-        }
-        .padding(.horizontal, InspectorMetrics.horizontalPadding)
-        .padding(.vertical, InspectorMetrics.sectionVerticalPadding / 2 + 3)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        // The folding body never paints over the next section mid-spring.
-        .clipped()
-    }
-}
-
-private extension StudioSection where Accessory == EmptyView {
-    init(
-        _ title: String,
-        isOn: Binding<Bool>? = nil,
-        toggleTitle: String = "",
-        @ViewBuilder content: @escaping () -> Content
-    ) {
-        self.init(
-            title: title,
-            isOn: isOn,
-            toggleTitle: toggleTitle,
-            accessory: { EmptyView() },
-            content: content
-        )
-    }
-}
-
-private extension StudioSection {
-    init(
-        _ title: String,
-        isOn: Binding<Bool>? = nil,
-        toggleTitle: String = "",
-        @ViewBuilder accessory: @escaping () -> Accessory,
-        @ViewBuilder content: @escaping () -> Content
-    ) {
-        self.init(
-            title: title,
-            isOn: isOn,
-            toggleTitle: toggleTitle,
-            accessory: accessory,
-            content: content
-        )
     }
 }
 

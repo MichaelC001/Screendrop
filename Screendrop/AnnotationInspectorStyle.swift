@@ -136,148 +136,189 @@ extension View {
 
 // MARK: - Section
 
-/// A titled section with consistent padding. An optional trailing accessory
-/// (reset, add, info) sits opposite the title, the way Sketch decorates its
-/// inspector groups.
+/// One inspector section, shared by every editor: a title row and a body,
+/// separated from the next section by whitespace alone.
+///
+/// A section folds in one of two ways. A feature with an on/off state passes
+/// `isOn`; its switch sits at the end of the title row and turning it off
+/// folds the body away. A heavy group with no state of its own passes
+/// `isExpanded` and gets a chevron instead. Either way a folded section can
+/// show a one-line `summary` so the setup can be scanned without opening it.
+/// `symbol` marks sections that edit a selection rather than the document.
 struct InspectorSection<Content: View, Accessory: View>: View {
     let title: String
-    @ViewBuilder var accessory: () -> Accessory
-    @ViewBuilder var content: () -> Content
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: InspectorMetrics.headerSpacing) {
-            HStack(spacing: 6) {
-                Text(title)
-                    .font(.inspectorSectionHeader)
-                    .foregroundStyle(.secondary)
-
-                Spacer(minLength: 0)
-
-                accessory()
-            }
-
-            content()
-        }
-        .padding(.horizontal, InspectorMetrics.horizontalPadding)
-        .padding(.vertical, InspectorMetrics.sectionVerticalPadding)
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
-extension InspectorSection where Accessory == EmptyView {
-    init(_ title: String, @ViewBuilder content: @escaping () -> Content) {
-        self.init(title: title, accessory: { EmptyView() }, content: content)
-    }
-}
-
-/// A compact accordion section for the inspector's heavier control groups.
-/// The title and chevron toggle expansion while header accessories keep their
-/// own independent hit targets.
-struct InspectorDisclosureSection<Content: View, Accessory: View>: View {
-    let title: String
-    /// A short readout of the section's active state, shown while collapsed
-    /// so the whole setup can be scanned without expanding anything.
     var summary: String? = nil
-    @Binding var isExpanded: Bool
+    var symbol: String? = nil
+    var isOn: Binding<Bool>? = nil
+    var toggleTitle: String = ""
+    var isExpanded: Binding<Bool>? = nil
     @ViewBuilder var accessory: () -> Accessory
     @ViewBuilder var content: () -> Content
 
     @State private var isHeaderHovering = false
-    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var showsContent: Bool {
+        (isOn?.wrappedValue ?? true) && (isExpanded?.wrappedValue ?? true)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 6) {
-                Button(action: toggleExpansion) {
-                    HStack(spacing: 6) {
-                        Text(title)
-                            .font(.inspectorSectionHeader)
-                            .foregroundStyle(isExpanded || isHeaderHovering ? Color.primary.opacity(0.85) : Color.secondary)
-                            .fixedSize()
+            header
 
-                        if let summary, !isExpanded {
-                            Text(summary)
-                                .font(.inspectorLabel)
-                                .foregroundStyle(.tertiary)
-                                .lineLimit(1)
-                                .truncationMode(.tail)
-                                .transition(.opacity)
-                        }
+            if showsContent {
+                content()
+                    .padding(.top, InspectorMetrics.headerSpacing)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .transition(
+                        AnyTransition(.blurReplace)
+                            .combined(with: .move(edge: .top))
+                            .combined(with: .opacity)
+                    )
+            }
+        }
+        .padding(.horizontal, InspectorMetrics.horizontalPadding)
+        .padding(.vertical, InspectorMetrics.sectionVerticalPadding / 2 + 3)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        // The folding body never paints over the next section mid-spring.
+        .clipped()
+    }
 
-                        Spacer(minLength: 0)
+    private var header: some View {
+        HStack(spacing: 6) {
+            Button(action: toggleExpansion) {
+                HStack(spacing: 6) {
+                    if let symbol {
+                        Image(systemName: symbol)
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(Palette.highlight)
                     }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .contentShape(Rectangle())
+
+                    Text(title)
+                        .font(.inspectorSectionHeader)
+                        .foregroundStyle(titleColor)
+                        .fixedSize()
+
+                    if let summary, !showsContent {
+                        Text(summary)
+                            .font(.inspectorLabel)
+                            .foregroundStyle(Palette.tertiaryLabel)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .transition(.opacity)
+                    }
+
+                    Spacer(minLength: 0)
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel(title)
-                .accessibilityValue(accessibilityValue)
-                .accessibilityHint(isExpanded ? "Collapse section" : "Expand section")
+                .frame(maxWidth: .infinity, minHeight: 24)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(isExpanded == nil)
+            .accessibilityLabel(title)
+            .accessibilityValue(summary ?? "")
+            .accessibilityAddTraits(.isHeader)
 
-                accessory()
+            accessory()
 
+            if let isOn {
+                InspectorToggle(
+                    toggleTitle.isEmpty ? title : toggleTitle,
+                    isOn: Binding(
+                        get: { isOn.wrappedValue },
+                        set: { value in
+                            withAnimation(reduceMotion ? nil : .morph) { isOn.wrappedValue = value }
+                        }
+                    )
+                )
+            }
+
+            if let isExpanded {
                 Button(action: toggleExpansion) {
                     Image(systemName: "chevron.down")
                         .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 18, height: 18)
-                        .rotationEffect(.degrees(isExpanded ? 0 : -90))
+                        .foregroundStyle(Palette.secondaryLabel)
+                        .frame(width: 18, height: 24)
+                        .rotationEffect(.degrees(isExpanded.wrappedValue ? 0 : -90))
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .focusable(false)
-                .accessibilityHidden(true)
+                .accessibilityLabel(isExpanded.wrappedValue ? "Collapse \(title)" : "Expand \(title)")
             }
-            .padding(.horizontal, InspectorMetrics.horizontalPadding)
-            .frame(height: 36)
-            .onHover { isHeaderHovering = $0 }
-
-            VStack(alignment: .leading, spacing: 0) {
-                if isExpanded {
-                    content()
-                        .padding(.horizontal, InspectorMetrics.horizontalPadding)
-                        .padding(.top, 2)
-                        .padding(.bottom, InspectorMetrics.sectionVerticalPadding)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .transition(.opacity.combined(with: .move(edge: .top)))
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            // SwiftUI can paint a moving transition beyond its interpolated
-            // layout height. Keep the disclosure body inside its own animated
-            // bounds so it never overlaps the header or neighboring sections.
-            .clipped()
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .onHover { isHeaderHovering = $0 }
     }
 
-    private var accessibilityValue: String {
-        let state = isExpanded ? "Expanded" : "Collapsed"
-        guard let summary else { return state }
-        return "\(state), \(summary)"
+    private var titleColor: Color {
+        if showsContent || (isExpanded != nil && isHeaderHovering) {
+            return Palette.label.opacity(0.95)
+        }
+        return Palette.secondaryLabel
     }
 
     private func toggleExpansion() {
-        withAnimation(accessibilityReduceMotion ? nil : .snappy(duration: 0.18)) {
-            isExpanded.toggle()
+        guard let isExpanded else { return }
+        withAnimation(reduceMotion ? nil : .morph) {
+            isExpanded.wrappedValue.toggle()
         }
     }
 }
 
-extension InspectorDisclosureSection where Accessory == EmptyView {
+extension InspectorSection where Accessory == EmptyView {
     init(
         _ title: String,
         summary: String? = nil,
-        isExpanded: Binding<Bool>,
+        symbol: String? = nil,
+        isOn: Binding<Bool>? = nil,
+        toggleTitle: String = "",
+        isExpanded: Binding<Bool>? = nil,
         @ViewBuilder content: @escaping () -> Content
     ) {
         self.init(
             title: title,
             summary: summary,
+            symbol: symbol,
+            isOn: isOn,
+            toggleTitle: toggleTitle,
             isExpanded: isExpanded,
             accessory: { EmptyView() },
             content: content
         )
+    }
+}
+
+extension InspectorSection {
+    init(
+        _ title: String,
+        summary: String? = nil,
+        symbol: String? = nil,
+        isOn: Binding<Bool>? = nil,
+        toggleTitle: String = "",
+        isExpanded: Binding<Bool>? = nil,
+        @ViewBuilder accessory: @escaping () -> Accessory,
+        @ViewBuilder content: @escaping () -> Content
+    ) {
+        self.init(
+            title: title,
+            summary: summary,
+            symbol: symbol,
+            isOn: isOn,
+            toggleTitle: toggleTitle,
+            isExpanded: isExpanded,
+            accessory: accessory,
+            content: content
+        )
+    }
+}
+
+/// The break between groups of related sections: more air than separates
+/// sections within a group, and no rule.
+struct InspectorGroupBreak: View {
+    var body: some View {
+        Color.clear
+            .frame(height: 16)
+            .accessibilityHidden(true)
     }
 }
 
@@ -550,16 +591,6 @@ struct InspectorRow<Content: View>: View {
             content()
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
-    }
-}
-
-/// Break between sections. Sections are separated by whitespace rather than
-/// rules, so this only adds a little extra air.
-struct InspectorSectionDivider: View {
-    var body: some View {
-        Color.clear
-            .frame(height: 4)
-            .accessibilityHidden(true)
     }
 }
 
