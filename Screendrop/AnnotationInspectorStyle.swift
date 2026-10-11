@@ -770,3 +770,64 @@ struct InspectorCustomBackgroundColorTile: View {
         }
     }
 }
+
+// MARK: - Popovers
+
+/// The layout every option popover shares: a title, an optional line of
+/// explanation, the controls, and Cancel beside one inked confirm button.
+/// Popovers paint the panel surface so inspector fills keep reading as
+/// controls over the popover's vibrancy.
+struct InspectorPopover<Content: View>: View {
+    let title: String
+    var message: String? = nil
+    let confirmTitle: String
+    var isConfirmDisabled = false
+    var width: CGFloat = 280
+    let onCancel: () -> Void
+    let onConfirm: () -> Void
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: InspectorMetrics.headerSpacing + 2) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.dsHeadline)
+                    .foregroundStyle(Palette.label)
+                if let message {
+                    Text(message)
+                        .font(.inspectorLabel)
+                        .foregroundStyle(Palette.secondaryLabel)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            content()
+
+            GlassEffectContainer(spacing: GlassMetrics.containerSpacing) {
+                HStack(spacing: GlassMetrics.gap) {
+                    Spacer(minLength: 0)
+                    GlassCapsuleButton(title: "Cancel", action: onCancel)
+                        .keyboardShortcut(.cancelAction)
+                    GlassCapsuleButton(title: confirmTitle, isProminent: true, action: onConfirm)
+                        .keyboardShortcut(.defaultAction)
+                        .disabled(isConfirmDisabled)
+                }
+            }
+            .padding(.top, 4)
+        }
+        .padding(Space.l + 2)
+        .frame(width: width)
+        .presentationBackground(Palette.panel)
+    }
+}
+
+extension View {
+    /// A plain text field drawn as an inspector field: filled, borderless,
+    /// at the standard control height.
+    func inspectorTextField() -> some View {
+        textFieldStyle(.plain)
+            .font(.inspectorValue)
+            .padding(.horizontal, 10)
+            .inspectorField()
+    }
+}

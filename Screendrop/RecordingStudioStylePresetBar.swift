@@ -140,20 +140,18 @@ struct RecordingStudioStylePresetBar: View {
     }
 
     private var nameEditor: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("New Preset")
-                    .font(.system(size: 14, weight: .semibold))
-
-                Text("Save the current background, layout, cursor size, and camera settings. It will be used for new recordings.")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
+        InspectorPopover(
+            title: "New Preset",
+            message: "Save the current background, layout, cursor size, and camera settings. It will be used for new recordings.",
+            confirmTitle: "Save",
+            isConfirmDisabled: !canSaveName,
+            width: 292,
+            onCancel: { isNameEditorPresented = false },
+            onConfirm: savePreset
+        ) {
             VStack(alignment: .leading, spacing: 6) {
                 TextField("Preset name", text: $draftName)
-                    .textFieldStyle(.roundedBorder)
+                    .inspectorTextField()
                     .focused($isNameFieldFocused)
                     .onSubmit(savePreset)
                     .onChange(of: draftName) { _, newValue in
@@ -170,36 +168,18 @@ struct RecordingStudioStylePresetBar: View {
                         "The selected wallpaper can’t be found. Choose it again before saving.",
                         systemImage: "exclamationmark.triangle.fill"
                     )
-                    .font(.system(size: 10))
-                    .foregroundStyle(.red)
+                    .font(.inspectorLabel)
+                    .foregroundStyle(Palette.record)
                 } else if duplicateNamePreset != nil {
                     Label(
                         "A preset with this name already exists.",
                         systemImage: "exclamationmark.circle.fill"
                     )
-                    .font(.system(size: 10))
-                    .foregroundStyle(.red)
+                    .font(.inspectorLabel)
+                    .foregroundStyle(Palette.record)
                 }
-            }
-
-            HStack(spacing: 8) {
-                Spacer(minLength: 0)
-
-                Button("Cancel") {
-                    isNameEditorPresented = false
-                }
-                .keyboardShortcut(.cancelAction)
-
-                Button("Save") {
-                    savePreset()
-                }
-                .buttonStyle(.borderedProminent)
-                .keyboardShortcut(.defaultAction)
-                .disabled(!canSaveName)
             }
         }
-        .padding(16)
-        .frame(width: 292)
         .onAppear {
             Task { @MainActor in
                 isNameFieldFocused = true

@@ -43,7 +43,6 @@ struct RecordingExportOptionsPopover: View {
 
     @State private var settings: VideoCompressionSettings
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.colorScheme) private var colorScheme
 
     init(
         initialSettings: VideoCompressionSettings,
@@ -55,76 +54,56 @@ struct RecordingExportOptionsPopover: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: InspectorMetrics.rowSpacing) {
-            Text("Export Options")
-                .font(.inspectorSectionHeader)
-                .padding(.bottom, 2)
-
-            segmented("Quality", options: VideoCompressionQuality.allCases, selection: $settings.quality)
-            segmented("Codec", options: VideoCompressionCodec.allCases, selection: $settings.codec)
-            segmented("Resolution", options: VideoCompressionResolution.allCases, selection: $settings.resolution)
-            segmented(
-                "Frame rate",
-                options: VideoExportFrameRate.allCases,
-                selection: Binding(
-                    get: { settings.effectiveFrameRate },
-                    set: { settings.frameRate = $0 }
-                )
-            )
-
-            toggle("Motion blur", isOn: Binding(
-                get: { settings.effectiveMotionBlurEnabled },
-                set: { settings.motionBlurEnabled = $0 }
-            ))
-            .help("Soften motion during zooms and pans. Turn off for faster exports with sharper motion.")
-
-            // `container` is optional on disk for backwards compatibility,
-            // but the control always shows a concrete choice.
-            segmented(
-                "Format",
-                options: VideoExportContainer.allCases,
-                selection: Binding(
-                    get: { settings.effectiveContainer },
-                    set: { settings.container = $0 }
-                )
-            )
-
-            InspectorHint(formatHint)
-
-            toggle("Include audio", isOn: Binding(
-                get: { !settings.removeAudio },
-                set: { settings.removeAudio = !$0 }
-            ))
-            .padding(.top, 2)
-
-            HStack(spacing: 8) {
-                Spacer(minLength: 0)
-
-                Button("Cancel") {
-                    dismiss()
-                }
-                .keyboardShortcut(.cancelAction)
-
-                Button("Export") {
-                    let confirmed = settings
-                    RecordingExportPreferences.lastSettings = confirmed
-                    dismiss()
-                    onConfirm(confirmed)
-                }
-                .keyboardShortcut(.defaultAction)
-                .buttonStyle(.borderedProminent)
+        InspectorPopover(
+            title: "Export Options",
+            confirmTitle: "Export",
+            onCancel: { dismiss() },
+            onConfirm: {
+                let confirmed = settings
+                RecordingExportPreferences.lastSettings = confirmed
+                dismiss()
+                onConfirm(confirmed)
             }
-            .controlSize(.small)
-            .padding(.top, 4)
+        ) {
+            VStack(alignment: .leading, spacing: InspectorMetrics.rowSpacing) {
+                segmented("Quality", options: VideoCompressionQuality.allCases, selection: $settings.quality)
+                segmented("Codec", options: VideoCompressionCodec.allCases, selection: $settings.codec)
+                segmented("Resolution", options: VideoCompressionResolution.allCases, selection: $settings.resolution)
+                segmented(
+                    "Frame rate",
+                    options: VideoExportFrameRate.allCases,
+                    selection: Binding(
+                        get: { settings.effectiveFrameRate },
+                        set: { settings.frameRate = $0 }
+                    )
+                )
+
+                toggle("Motion blur", isOn: Binding(
+                    get: { settings.effectiveMotionBlurEnabled },
+                    set: { settings.motionBlurEnabled = $0 }
+                ))
+                .help("Soften motion during zooms and pans. Turn off for faster exports with sharper motion.")
+
+                // `container` is optional on disk for backwards compatibility,
+                // but the control always shows a concrete choice.
+                segmented(
+                    "Format",
+                    options: VideoExportContainer.allCases,
+                    selection: Binding(
+                        get: { settings.effectiveContainer },
+                        set: { settings.container = $0 }
+                    )
+                )
+
+                InspectorHint(formatHint)
+
+                toggle("Include audio", isOn: Binding(
+                    get: { !settings.removeAudio },
+                    set: { settings.removeAudio = !$0 }
+                ))
+                .padding(.top, 2)
+            }
         }
-        .padding(InspectorMetrics.horizontalPadding)
-        // Matches the Studio inspector's ideal column width, so the controls
-        // keep the exact proportions they had in the sidebar.
-        .frame(width: 280)
-        // Replaces the popover's vibrancy with the panel surface these
-        // controls are drawn for; without it their low-opacity track and
-        // selection fills composite over the desktop and disappear.
-        .presentationBackground(InspectorControlPalette.panelBackground(for: colorScheme))
     }
 
     private var formatHint: String {

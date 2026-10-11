@@ -57,47 +57,30 @@ struct CloudUploadOptionsPopover: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("Share Options")
-                .font(.headline)
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Title")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                TextField("Title", text: $title, prompt: Text("Untitled"))
-                    .labelsHidden()
-                    .textFieldStyle(.roundedBorder)
-                    .lineLimit(1)
+        InspectorPopover(
+            title: "Share Options",
+            message: "Uploads to your cloud and copies a share link.",
+            confirmTitle: "Upload",
+            onCancel: { dismiss() },
+            onConfirm: {
+                CloudUploadPreferences.lastSocialEnabled = socialEnabled
+                let options = CloudUploadOptions(title: title, socialEnabled: socialEnabled)
+                dismiss()
+                onConfirm(options)
             }
-
-            HStack {
-                Text("Allow comments & likes")
-                Spacer()
-                Toggle("Allow comments & likes", isOn: $socialEnabled)
-                    .labelsHidden()
-                    .toggleStyle(.ink)
-                    .controlSize(.mini)
-            }
-
-            HStack {
-                Spacer()
-                Button("Cancel") {
-                    dismiss()
+        ) {
+            VStack(alignment: .leading, spacing: InspectorMetrics.rowSpacing) {
+                VStack(alignment: .leading, spacing: InspectorMetrics.groupLabelSpacing) {
+                    InspectorGroupLabel("Title")
+                    TextField("Title", text: $title, prompt: Text("Untitled"))
+                        .labelsHidden()
+                        .lineLimit(1)
+                        .inspectorTextField()
                 }
-                .keyboardShortcut(.cancelAction)
 
-                Button("Upload") {
-                    CloudUploadPreferences.lastSocialEnabled = socialEnabled
-                    let options = CloudUploadOptions(title: title, socialEnabled: socialEnabled)
-                    dismiss()
-                    onConfirm(options)
-                }
-                .keyboardShortcut(.defaultAction)
+                InspectorToggleRow("Allow comments & likes", isOn: $socialEnabled)
             }
         }
-        .padding(16)
-        .frame(width: 280)
     }
 }
 

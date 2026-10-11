@@ -1357,44 +1357,29 @@ private struct StudioAudioExportOptions: View {
     let onExport: () -> Void
 
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        VStack(alignment: .leading, spacing: InspectorMetrics.rowSpacing) {
-            Text("Export Audio")
-                .font(.inspectorSectionHeader)
-                .padding(.bottom, 2)
+        InspectorPopover(
+            title: "Export Audio",
+            confirmTitle: "Export",
+            width: 260,
+            onCancel: { dismiss() },
+            onConfirm: onExport
+        ) {
+            VStack(alignment: .leading, spacing: InspectorMetrics.rowSpacing) {
+                InspectorSegmented(
+                    options: RecordingAudioFormat.allCases,
+                    isSelected: { $0 == format },
+                    onTap: { format = $0 },
+                    label: { Text($0.title).font(.inspectorSegment) }
+                )
 
-            InspectorSegmented(
-                options: RecordingAudioFormat.allCases,
-                isSelected: { $0 == format },
-                onTap: { format = $0 },
-                label: { Text($0.title).font(.inspectorSegment) }
-            )
-
-            InspectorHint(
-                format == .m4a
-                    ? "Compact AAC audio, accepted by most enhancement tools."
-                    : "Uncompressed, for tools that accept nothing else."
-            )
-
-            HStack(spacing: 8) {
-                Spacer(minLength: 0)
-
-                Button("Cancel") {
-                    dismiss()
-                }
-                .keyboardShortcut(.cancelAction)
-
-                Button("Export", action: onExport)
-                    .keyboardShortcut(.defaultAction)
-                    .buttonStyle(.borderedProminent)
+                InspectorHint(
+                    format == .m4a
+                        ? "Compact AAC audio, accepted by most enhancement tools."
+                        : "Uncompressed, for tools that accept nothing else."
+                )
             }
-            .controlSize(.small)
-            .padding(.top, 4)
         }
-        .padding(InspectorMetrics.horizontalPadding)
-        .frame(width: 240)
-        .presentationBackground(InspectorControlPalette.panelBackground(for: colorScheme))
     }
 }
