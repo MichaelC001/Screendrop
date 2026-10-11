@@ -35,7 +35,7 @@ final class CaptureCountdownPresenter {
         installEscapeMonitors()
         let task = Task { @MainActor in
             guard runID == id, !Task.isCancelled else { return false }
-            let model = CaptureCountdownModel(remaining: seconds)
+            let model = CaptureCountdownModel(remaining: seconds, total: seconds)
             present(model: model, displayID: displayID)
             do {
                 for value in stride(from: seconds, through: 1, by: -1) {
@@ -90,7 +90,12 @@ final class CaptureCountdownPresenter {
         dismiss()
 
         let hostingView = NSHostingView(rootView: CaptureCountdownView(model: model, onCancel: { [weak self] in self?.cancel() }))
-        let size = NSSize(width: 160, height: 160)
+        hostingView.sizingOptions = []
+        // Room around the glass for the shadow it casts.
+        let size = NSSize(
+            width: CaptureCountdownView.size + 2 * CaptureCountdownView.shadowSlack,
+            height: CaptureCountdownView.size + 2 * CaptureCountdownView.shadowSlack
+        )
 
         let panel = NSPanel(
             contentRect: NSRect(origin: .zero, size: size),
@@ -137,39 +142,69 @@ final class CaptureCountdownPresenter {
 @Observable
 private final class CaptureCountdownModel {
     var remaining: Int
+    let total: Int
 
-    init(remaining: Int) {
+    init(remaining: Int, total: Int) {
         self.remaining = remaining
+        self.total = max(1, total)
     }
 }
 
+/// A glass square in the middle of the screen: the seconds left, a ring
+/// that drains through each second, and how to call it off.
 private struct CaptureCountdownView: View {
+    static let size: CGFloat = 168
+    static let shadowSlack: CGFloat = 32
+
     @State var model: CaptureCountdownModel
     let onCancel: () -> Void
 
-    var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 28, style: .continuous)
-                .fill(.black.opacity(0.55))
-                .background(
-                    RoundedRectangle(cornerRadius: 28, style: .continuous)
-                        .fill(.ultraThinMaterial)
-                )
+    @State private var ring: Double = 1
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-            Text("\(model.remaining)")
-                .font(.system(size: 76, weight: .semibold, design: .rounded))
-                .foregroundStyle(.white)
-                .contentTransition(.numericText(countsDown: true))
-                .animation(.snappy, value: model.remaining)
+    var body: some View {
+        VStack(spacing: 10) {
+            ZStack {
+                Circle()
+                    .stroke(Palette.hairline, lineWidth: 3)
+                Circle()
+                    .trim(from: 0, to: ring)
+                    .stroke(Palette.label, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+
+                Text("\(model.remaining)")
+                    .font(.system(size: 52, weight: .semibold, design: .rounded))
+                    .foregroundStyle(Palette.label)
+                    .contentTransition(.numericText(countsDown: true))
+                    .motion(.morphQuick, value: model.remaining)
+            }
+            .frame(width: 96, height: 96)
+
+            Button(action: onCancel) {
+                HStack(spacing: 5) {
+                    KeyCap(label: "esc", isSmall: true)
+                    Text("to cancel")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(Palette.secondaryLabel)
+                }
+            }
+            .buttonStyle(.plain)
+            .help("Cancel countdown (Esc)")
         }
-        .frame(width: 160, height: 160)
-        .overlay(alignment: .bottom) {
-            Button("Cancel", action: onCancel)
-                .buttonStyle(.plain)
-                .font(.caption)
-                .foregroundStyle(.white.opacity(0.85))
-                .padding(.bottom, 12)
-                .help("Cancel countdown (Esc)")
-        }
+        .frame(width: Self.size, height: Self.size)
+        .glassHUD(radius: 40)
+        .padding(Self.shadowSlack)
+        .onAppear { drain(from: model.remaining) }
+        .onChange(of: model.remaining) { _, value in drain(from: value) }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Capturing in \(model.remaining)")
+    }
+
+    /// Sets the ring to this second's start, then drains it to the next.
+    private func drain(from value: Int) {
+        let start = Double(value) / Double(model.total)
+        let end = Double(value - 1) / Double(model.total)
+        ring = start
+        withAnimation(reduceMotion ? nil : .linear(duration: 1)) { ring = end }
     }
 }

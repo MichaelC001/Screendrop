@@ -428,10 +428,7 @@ private struct RecordingSourceTargetCard: View {
             .foregroundStyle(.white)
             .padding(.horizontal, 14)
             .frame(height: 32)
-            .background(Palette.highlight, in: Capsule())
-            .overlay {
-                Capsule().strokeBorder(.white.opacity(0.25), lineWidth: 0.5)
-            }
+            .glassEffect(.regular.tint(Palette.record), in: .capsule)
             .shadow(color: .black.opacity(0.3), radius: 8, y: 2)
             .padding(.top, 4)
         }

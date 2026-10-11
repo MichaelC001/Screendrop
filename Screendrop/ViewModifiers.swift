@@ -178,7 +178,7 @@ extension View {
     /// Applies a consistent frosted-glass sheet presentation style.
     func screendropSheetStyle() -> some View {
         self
-            .presentationCornerRadius(12)
+            .presentationCornerRadius(Radius.card)
             .presentationBackground(.thinMaterial)
             .presentationBackgroundInteraction(.enabled)
     }

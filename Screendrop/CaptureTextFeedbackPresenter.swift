@@ -16,7 +16,12 @@ import SwiftUI
 final class CaptureTextFeedbackPresenter {
     static let shared = CaptureTextFeedbackPresenter()
 
-    private static let panelSize = NSSize(width: 300, height: 52)
+    private static let toastSize = NSSize(width: 300, height: 52)
+    /// Room around the glass for the shadow it casts.
+    private static let shadowSlack: CGFloat = 24
+    private static var panelSize: NSSize {
+        NSSize(width: toastSize.width + 2 * shadowSlack, height: toastSize.height + 2 * shadowSlack)
+    }
     /// Clears the bottom edge by more than the toast is tall, so it reads as
     /// floating over the work rather than stuck to the screen edge.
     private static let bottomInset: CGFloat = 96
@@ -69,8 +74,9 @@ final class CaptureTextFeedbackPresenter {
                 symbol: symbol,
                 title: title,
                 detail: detail,
-                size: size
+                size: Self.toastSize
             )
+            .padding(Self.shadowSlack)
         )
         // The panel is framed by hand below, so the hosting view must not try
         // to resize the window to its own intrinsic content size.
@@ -138,7 +144,7 @@ final class CaptureTextFeedbackPresenter {
         guard let frame = screen?.visibleFrame else { return .zero }
         return CGPoint(
             x: frame.midX - size.width / 2,
-            y: frame.minY + Self.bottomInset
+            y: frame.minY + Self.bottomInset - Self.shadowSlack
         )
     }
 
@@ -157,33 +163,28 @@ private struct CaptureTextFeedbackView: View {
     let size: NSSize
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 11) {
             Image(systemName: symbol)
-                .font(.system(size: 18, weight: .medium))
-                .foregroundStyle(.white)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(Palette.label)
+                .frame(width: 30, height: 30)
+                .background(Palette.fill, in: Circle())
 
             VStack(alignment: .leading, spacing: 1) {
                 Text(title)
-                    .font(.system(size: 13, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.white)
+                    .font(.dsHeadline)
+                    .foregroundStyle(Palette.label)
                 Text(detail)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.white.opacity(0.65))
+                    .font(.dsCaption)
+                    .foregroundStyle(Palette.secondaryLabel)
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
 
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 14)
+        .padding(.horizontal, 11)
         .frame(width: size.width, height: size.height)
-        .background {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(.black.opacity(0.55))
-                .background(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(.ultraThinMaterial)
-                )
-        }
+        .glassHUD(radius: size.height / 2)
     }
 }

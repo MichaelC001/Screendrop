@@ -149,7 +149,7 @@ private struct PinnedScreenshotView: View {
         }
         .padding(.horizontal, 8)
         .frame(height: 30)
-        .background(.ultraThinMaterial, in: Capsule())
+        .glassEffect(.regular, in: .capsule)
         .environment(\.colorScheme, .dark)
     }
 
@@ -158,6 +158,7 @@ private struct PinnedScreenshotView: View {
             Image(systemName: systemImage)
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(.white)
+                .contentTransition(.symbolEffect(.replace))
                 .frame(width: 22, height: 22)
                 .contentShape(Rectangle())
         }
@@ -168,10 +169,10 @@ private struct PinnedScreenshotView: View {
     private func copy() {
         do {
             try ScreenshotFileActions.copyPNGToClipboard(from: url)
-            withAnimation { didCopy = true }
+            withAnimation(.morphQuickIfAllowed) { didCopy = true }
             Task {
                 try? await Task.sleep(for: .seconds(1.5))
-                withAnimation { didCopy = false }
+                withAnimation(.morphQuickIfAllowed) { didCopy = false }
             }
         } catch {
             print("Failed to copy pinned screenshot: \(error)")
