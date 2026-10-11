@@ -256,6 +256,10 @@ final class RecordingSourceTargetPresenter {
         panel.level = NSWindow.Level(rawValue: NSWindow.Level.floating.rawValue - 1)
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
         panel.acceptsMouseMovedEvents = true
+        // The sheet is clear, and the window server passes clicks on clear
+        // pixels to whatever is behind. Setting this explicitly makes the
+        // whole panel catch them, whatever the overlay happens to draw.
+        panel.ignoresMouseEvents = false
         panel.setFrame(screen.frame, display: false)
 
         let sheet = RecordingSourceTargetSheetView(frame: CGRect(origin: .zero, size: screen.frame.size))
@@ -428,7 +432,12 @@ private struct RecordingSourceTargetCard: View {
             .foregroundStyle(.white)
             .padding(.horizontal, 14)
             .frame(height: 32)
-            .glassEffect(.regular.tint(Palette.record), in: .capsule)
+            // Solid rather than glass: glass in this never-key panel renders
+            // untinted, and the pill has to read over any content.
+            .background(Palette.record, in: Capsule())
+            .overlay {
+                Capsule().strokeBorder(.white.opacity(0.25), lineWidth: 0.5)
+            }
             .shadow(color: .black.opacity(0.3), radius: 8, y: 2)
             .padding(.top, 4)
         }
