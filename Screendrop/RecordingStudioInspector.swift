@@ -74,7 +74,10 @@ struct StudioInspector: View {
                 .background(sidebarBackground)
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
+            // Backed like the preset bar above, so the list never shows
+            // through the buttons as it scrolls.
             StudioActionFooter(model: model)
+                .background(sidebarBackground)
         }
         .background(sidebarBackground)
         .motion(.morph, value: selection)

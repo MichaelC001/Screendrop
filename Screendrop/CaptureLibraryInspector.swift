@@ -39,7 +39,9 @@ struct CaptureLibraryInspector: View {
                 .transition(.opacity)
             }
         }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
+        // A bar rather than an inset, so the scroll view's soft edge fades
+        // the list out under the buttons instead of showing it through them.
+        .safeAreaBarIfAvailable(edge: .bottom) {
             if !items.isEmpty {
                 actionFooter
                     .transition(.rise)
