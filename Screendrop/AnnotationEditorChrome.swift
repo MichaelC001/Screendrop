@@ -32,13 +32,14 @@ struct AnnotationZoomControl: View {
             Button("200%") { model.setZoomPercent(200) }
         } label: {
             Text("\(model.zoomPercent)%")
-                .font(.system(size: 12, weight: .medium))
-                .monospacedDigit()
+                .font(.dsNumeric)
+                .foregroundStyle(Palette.label)
+                .contentTransition(.numericText())
                 .frame(minWidth: 38)
                 .padding(.horizontal, 12)
-                .padding(.vertical, 7)
+                .frame(height: GlassMetrics.buttonSize)
                 .contentShape(Capsule())
-                .glassEffect(.regular.interactive())
+                .glassEffect(.regular.interactive(), in: .capsule)
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
@@ -55,13 +56,13 @@ struct CropResolutionBadge: View {
 
     var body: some View {
         Text("\(Int(size.width)) × \(Int(size.height)) px")
-            .font(.system(size: 12, weight: .medium))
-            .monospacedDigit()
-            .foregroundStyle(.secondary)
+            .font(.dsNumeric)
+            .foregroundStyle(Palette.secondaryLabel)
+            .contentTransition(.numericText())
             .padding(.horizontal, 12)
-            .padding(.vertical, 7)
+            .frame(height: GlassMetrics.buttonSize)
             .fixedSize()
-            .glassEffect()
+            .glassEffect(.regular, in: .capsule)
             .help("Crop size")
     }
 }
@@ -73,11 +74,11 @@ struct CropResolutionBadge: View {
 struct LowResolutionPreviewNotice: View {
     @State private var isExpanded = false
 
-    private let diameter: CGFloat = 28
+    private let diameter: CGFloat = GlassMetrics.buttonSize
 
     var body: some View {
         Button {
-            withAnimation(.snappy(duration: 0.22)) {
+            withAnimation(.morphQuickIfAllowed) {
                 isExpanded.toggle()
             }
         } label: {
@@ -94,12 +95,12 @@ struct LowResolutionPreviewNotice: View {
                         .lineLimit(1)
                         .fixedSize()
                         .padding(.trailing, 12)
-                        .transition(.opacity.combined(with: .move(edge: .leading)))
+                        .transition(AnyTransition(.blurReplace))
                 }
             }
             .frame(height: diameter)
             .fixedSize()
-            .glassEffect()
+            .glassEffect(.regular.interactive(), in: .capsule)
         }
         .buttonStyle(.plain)
         .help("Why is this preview low resolution?")
@@ -110,8 +111,6 @@ struct AnnotationEditorWorkspaceBackground: View {
     private let dotSpacing: CGFloat = 18
     private let dotRadius: CGFloat = 1.15
 
-    @Environment(\.colorScheme) private var colorScheme
-
     var body: some View {
         ZStack {
             // A flat, fully desaturated gray rather than a system material -
@@ -119,7 +118,7 @@ struct AnnotationEditorWorkspaceBackground: View {
             // and whatever's behind the window, which reads as tinted rather
             // than neutral.
             Rectangle()
-                .fill(colorScheme == .dark ? Color(white: 0.16) : Color(white: 0.93))
+                .fill(Palette.workspace)
 
             Canvas { context, size in
                 var path = Path()

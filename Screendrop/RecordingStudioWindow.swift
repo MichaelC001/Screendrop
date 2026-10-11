@@ -145,9 +145,24 @@ private struct RecordingStudioContent: View {
             .background(AnnotationEditorWorkspaceBackground())
             .overlay(alignment: .bottom) {
                 if model.isCroppingVideo {
-                    StudioCropBar(model: model)
-                        .padding(.bottom, 18)
-                        .transition(.rise)
+                    GlassCropBar(
+                        aspect: model.videoCropAspect,
+                        onAspectChange: { aspect in
+                            withAnimation(.morphIfAllowed) { model.setVideoCropAspect(aspect) }
+                        },
+                        onReset: {
+                            withAnimation(.morphIfAllowed) { model.resetVideoCrop() }
+                        },
+                        onCancel: {
+                            withAnimation(.morphIfAllowed) { model.cancelVideoCrop() }
+                        },
+                        onApply: {
+                            withAnimation(.morphIfAllowed) { model.applyVideoCrop() }
+                        },
+                        resetHelp: "Reset the selection to the whole video"
+                    )
+                    .padding(.bottom, 18)
+                    .transition(.rise)
                 }
             }
             .overlay(alignment: .bottomTrailing) {
@@ -235,91 +250,6 @@ private struct RecordingStudioContent: View {
                 break
             }
         }
-    }
-}
-
-/// Crop mode's controls, floating over the bottom of the stage: aspect,
-/// reset, cancel, and the one tinted action that applies the crop.
-private struct StudioCropBar: View {
-    @Bindable var model: RecordingStudioModel
-    @Namespace private var glass
-
-    var body: some View {
-        GlassEffectContainer(spacing: GlassMetrics.containerSpacing) {
-            HStack(spacing: GlassMetrics.gap) {
-                aspectMenu
-                    .glassEffectID("aspect", in: glass)
-
-                GlassCapsuleButton(title: "Reset", systemImage: "arrow.counterclockwise") {
-                    withAnimation(.morphIfAllowed) {
-                        model.resetVideoCrop()
-                    }
-                }
-                .help("Reset the selection to the whole video")
-                .glassEffectID("reset", in: glass)
-
-                GlassIconButton(systemImage: "xmark", help: "Cancel Crop (Esc)") {
-                    withAnimation(.morphIfAllowed) {
-                        model.cancelVideoCrop()
-                    }
-                }
-                .keyboardShortcut(.cancelAction)
-                .glassEffectID("cancel", in: glass)
-
-                GlassCapsuleButton(title: "Crop", systemImage: "checkmark", isProminent: true) {
-                    withAnimation(.morphIfAllowed) {
-                        model.applyVideoCrop()
-                    }
-                }
-                .keyboardShortcut(.defaultAction)
-                .help("Apply the crop (Return)")
-                .glassEffectID("apply", in: glass)
-            }
-        }
-    }
-
-    private var aspectMenu: some View {
-        Menu {
-            Picker("Aspect Ratio", selection: aspectBinding) {
-                ForEach(CropAspectRatio.allCases) { aspect in
-                    Text(aspect.title).tag(aspect)
-                }
-            }
-            .pickerStyle(.inline)
-            .labelsHidden()
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: "aspectratio")
-                    .font(.system(size: GlassMetrics.symbolSize - 1, weight: .semibold))
-                Text(model.videoCropAspect.title)
-                    .font(.system(size: 12, weight: .semibold))
-                    .contentTransition(.interpolate)
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(.system(size: 8, weight: .bold))
-                    .foregroundStyle(.secondary)
-            }
-            .foregroundStyle(.primary.opacity(0.88))
-            .padding(.horizontal, 13)
-            .frame(height: GlassMetrics.buttonSize)
-            .contentShape(Capsule())
-        }
-        .menuStyle(.button)
-        .menuIndicator(.hidden)
-        .buttonStyle(.plain)
-        .fixedSize()
-        .glassEffect(.regular.interactive(), in: .capsule)
-        .help("Crop aspect ratio")
-    }
-
-    private var aspectBinding: Binding<CropAspectRatio> {
-        Binding(
-            get: { model.videoCropAspect },
-            set: { aspect in
-                withAnimation(.morphIfAllowed) {
-                    model.setVideoCropAspect(aspect)
-                }
-            }
-        )
     }
 }
 

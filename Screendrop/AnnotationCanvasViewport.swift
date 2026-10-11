@@ -16,6 +16,12 @@ nonisolated struct AnnotationCanvasViewport {
         var viewportSize: CGSize
         var displayScale: CGFloat
         var fitInsets: CGSize
+        /// Height kept clear along the bottom for floating chrome (the tool
+        /// dock). Fitting centers the canvas in the space above it.
+        var bottomReserve: CGFloat = 0
+
+        /// The viewport height a fitted canvas is centered in.
+        var fitHeight: CGFloat { max(1, viewportSize.height - bottomReserve) }
 
         var isValid: Bool {
             [canvasSize.width, canvasSize.height, viewportSize.width, viewportSize.height,
@@ -24,7 +30,7 @@ nonisolated struct AnnotationCanvasViewport {
 
         var fitScale: CGFloat {
             min(max(1, viewportSize.width - fitInsets.width * 2) / canvasSize.width,
-                max(1, viewportSize.height - fitInsets.height * 2) / canvasSize.height,
+                max(1, fitHeight - fitInsets.height * 2) / canvasSize.height,
                 scaleLimits.upperBound)
         }
 
@@ -90,7 +96,7 @@ nonisolated struct AnnotationCanvasViewport {
         guard let layout else { return }
         scale = layout.fitScale
         origin = CGPoint(x: (layout.viewportSize.width - layout.canvasSize.width * scale) / 2,
-                         y: (layout.viewportSize.height - layout.canvasSize.height * scale) / 2)
+                         y: (layout.fitHeight - layout.canvasSize.height * scale) / 2)
     }
 
     mutating func zoom(to requestedScale: CGFloat, anchor requestedAnchor: CGPoint? = nil) {
@@ -179,8 +185,8 @@ nonisolated struct AnnotationCanvasViewport {
         origin.x = size.width <= layout.viewportSize.width
             ? (layout.viewportSize.width - size.width) / 2
             : min(max(origin.x, layout.viewportSize.width - size.width), 0)
-        origin.y = size.height <= layout.viewportSize.height
-            ? (layout.viewportSize.height - size.height) / 2
+        origin.y = size.height <= layout.fitHeight
+            ? (layout.fitHeight - size.height) / 2
             : min(max(origin.y, layout.viewportSize.height - size.height), 0)
     }
 }

@@ -21,6 +21,7 @@ struct AnnotationEditorWindow: View {
     @State private var isUploading = false
     @State private var closeGuard = EditorCloseGuard()
     @State private var didCopyLink = false
+    @State private var saveFlash = false
     @FocusState private var focusedField: AnnotationEditorFocusedField?
     @Environment(\.dismiss) private var dismissWindow
 
@@ -35,11 +36,7 @@ struct AnnotationEditorWindow: View {
             .toolbarBackgroundVisibility(.visible, for: .windowToolbar)
             .toolbar {
                 ToolbarItemGroup(placement: .primaryAction) {
-                    if model.isCropping {
-                        cropActions
-                    } else {
-                        editingActions.disabled(isBusy)
-                    }
+                    toolbarActions
                 }
             }
             .task(id: url) {
@@ -72,11 +69,11 @@ struct AnnotationEditorWindow: View {
             }
             .onChange(of: model.revision) { _, _ in
                 closeGuard.refreshDocumentEdited()
-                if didCopyLink { withAnimation(.snappy(duration: 0.2)) { didCopyLink = false } }
+                if didCopyLink { withAnimation(.morphQuickIfAllowed) { didCopyLink = false } }
             }
             .onChange(of: model.backgroundSettings) { _, _ in
                 closeGuard.refreshDocumentEdited()
-                if didCopyLink { withAnimation(.snappy(duration: 0.2)) { didCopyLink = false } }
+                if didCopyLink { withAnimation(.morphQuickIfAllowed) { didCopyLink = false } }
             }
             .onChange(of: model.baseImageURL) { _, _ in
                 // Cropping replaces the base image rather than touching the
@@ -95,9 +92,9 @@ struct AnnotationEditorWindow: View {
                 onZoomOut: model.zoomOut,
                 onFitCanvas: model.fitCanvas,
                 onActualSize: { model.setZoomPercent(100) },
-                onToggleCrop: { withAnimation(.snappy(duration: 0.2)) { model.toggleCropping() } },
-                onApplyCrop: { withAnimation(.snappy(duration: 0.2)) { model.applyCrop() } },
-                onCancelCrop: { withAnimation(.snappy(duration: 0.2)) { model.cancelCrop() } },
+                onToggleCrop: { withAnimation(.morphIfAllowed) { model.toggleCropping() } },
+                onApplyCrop: { withAnimation(.morphIfAllowed) { model.applyCrop() } },
+                onCancelCrop: { withAnimation(.morphIfAllowed) { model.cancelCrop() } },
                 isCropping: { model.isCropping }
             ))
             .inspector(isPresented: $isInspectorPresented) {
@@ -110,139 +107,74 @@ struct AnnotationEditorWindow: View {
                     onPickWallpaper: pickCustomWallpaper
                 )
                 .disabled(model.isCropping || model.isCommitting)
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    actionFooter
+                        .background(Palette.panel)
+                }
             }
     }
 
     // MARK: Toolbar actions
 
-    /// The standard trailing actions shown when not cropping.
+    /// Crop, Save and the inspector toggle - the same three Studio shows.
+    /// Everything that finishes or shares the screenshot lives in the
+    /// inspector's footer.
     @ViewBuilder
-    private var editingActions: some View {
+    private var toolbarActions: some View {
         Button(action: enterCrop) {
             Label("Crop", systemImage: "crop")
                 .labelStyle(.titleAndIcon)
         }
         .help("Crop the screenshot")
-        .disabled(model.previewImage == nil || model.imageSize == .zero)
-
-        if CloudUploader.shared.isConfigured {
-            CloudUploadButton(
-                suggestedTitle: model.sourceURL?.deletingPathExtension().lastPathComponent ?? "",
-                onUpload: uploadAnnotation
-            ) {
-                if isUploading {
-                    HStack(spacing: 6) {
-                        ProgressView()
-                            .controlSize(.small)
-                        Text("Uploading...")
-                    }
-                    .padding(.horizontal, 6)
-                } else if didCopyLink {
-                    Label("Link copied", systemImage: "checkmark.circle.fill")
-                        .labelStyle(.titleAndIcon)
-                        .padding(.horizontal, 6)
-                } else {
-                    Label("Upload", systemImage: "arrow.up.circle")
-                        .labelStyle(.titleAndIcon)
-                        .padding(.horizontal, 6)
-                }
-            }
-            .tint(.accentColor)
-            .help("Upload to the cloud and copy the link")
-            .disabled(isUploading)
-        }
-
-        Button(action: saveAs) {
-            Label("Save As", systemImage: "arrow.down.circle")
-                .labelStyle(.titleAndIcon)
-        }
-        .help("Save a copy to a location of your choice")
+        .disabled(model.previewImage == nil || model.imageSize == .zero || model.isCropping || isBusy)
 
         Button(action: saveEdits) {
-            if isSaving {
-                ProgressView().controlSize(.small)
-            } else {
-                Image(systemName: "square.and.arrow.down")
-            }
+            Label(saveFlash ? "Saved" : "Save", systemImage: saveFlash ? "checkmark" : "square.and.arrow.down")
+                .labelStyle(.iconOnly)
+                .contentTransition(.symbolEffect(.replace))
         }
         .keyboardShortcut("s", modifiers: .command)
-        .disabled(!model.hasUnsavedChanges || isSaving || isFinishing)
-        .help("Save annotations (⌘S)")
-
-        Button(action: finishEditing) {
-            Image(systemName: "checkmark.circle")
-        }
-        .help("Finish editing and save")
+        .disabled((!model.hasUnsavedChanges && !saveFlash) || isBusy || model.isCropping)
+        .help(model.hasUnsavedChanges ? "Save annotations (⌘S)" : "All changes saved")
+        .motion(.morphQuick, value: saveFlash)
 
         Button {
             clearInspectorFocus()
-            isInspectorPresented.toggle()
+            withAnimation(.morphIfAllowed) { isInspectorPresented.toggle() }
         } label: {
             Image(systemName: "sidebar.right")
         }
         .help(isInspectorPresented ? "Hide Inspector" : "Show Inspector")
     }
 
-    /// The crop controls that replace the trailing actions while cropping.
-    @ViewBuilder
-    private var cropActions: some View {
-        Menu {
-            Picker("Aspect Ratio", selection: aspectBinding) {
-                ForEach(CropAspectRatio.allCases) { aspect in
-                    Text(aspect.title).tag(aspect)
-                }
-            }
-            .pickerStyle(.inline)
-            .labelsHidden()
-        } label: {
-            Label(model.cropAspect.title, systemImage: "aspectratio")
-                .labelStyle(.titleAndIcon)
-        }
-        .help("Aspect ratio")
-
-        Button {
-            clearInspectorFocus()
-            withAnimation(.snappy(duration: 0.18)) { model.resetCrop() }
-        } label: {
-            Text("Reset").padding(.horizontal, 6)
-        }
-        .help("Reset the selection to the whole image")
-
-        Button(action: exitCrop) {
-            Text("Cancel").padding(.horizontal, 6)
-        }
-        .keyboardShortcut(.cancelAction)
-
-        Button(action: applyCropAction) {
-            Text("Crop").padding(.horizontal, 8)
-        }
-        .keyboardShortcut(.defaultAction)
-        .buttonStyle(.borderedProminent)
-    }
-
-    private var aspectBinding: Binding<CropAspectRatio> {
-        Binding(
-            get: { model.cropAspect },
-            set: { newValue in
-                clearInspectorFocus()
-                withAnimation(.snappy(duration: 0.18)) { model.setCropAspect(newValue) }
-            }
+    /// Share, Save As and Done, built like Studio's Share/Export footer.
+    private var actionFooter: some View {
+        AnnotationActionFooter(
+            canShare: CloudUploader.shared.isConfigured,
+            isUploading: isUploading,
+            didCopyLink: didCopyLink,
+            isFinishing: isFinishing,
+            isBusy: isBusy || model.isCropping,
+            suggestedTitle: model.sourceURL?.deletingPathExtension().lastPathComponent ?? "",
+            onUpload: uploadAnnotation,
+            onSaveAs: saveAs,
+            onDone: finishEditing
         )
     }
 
     private func enterCrop() {
         clearInspectorFocus()
-        withAnimation(.snappy(duration: 0.22)) { model.beginCropping() }
+        withAnimation(.morphIfAllowed) { model.beginCropping() }
     }
 
     private func exitCrop() {
         clearInspectorFocus()
-        withAnimation(.snappy(duration: 0.22)) { model.cancelCrop() }
+        withAnimation(.morphIfAllowed) { model.cancelCrop() }
     }
 
     private func applyCropAction() {
         clearInspectorFocus()
-        withAnimation(.snappy(duration: 0.22)) { model.applyCrop() }
+        withAnimation(.morphIfAllowed) { model.applyCrop() }
     }
 
     private var mainContent: some View {
@@ -267,41 +199,94 @@ struct AnnotationEditorWindow: View {
         }
         .frame(minWidth: 760, minHeight: 580)
         .clipped()
-        .overlay(alignment: .bottomLeading) {
-            if model.previewImage != nil, model.imageSize != .zero {
-                HStack(spacing: 8) {
-                    AnnotationZoomControl(model: model)
-
-                    if model.isPreviewDownscaled {
-                        LowResolutionPreviewNotice()
-                    }
-                }
-                .padding(.leading, 16)
-                .padding(.bottom, 16)
+        .overlay(alignment: .bottom) {
+            if hasImage {
+                bottomChrome
             }
         }
         .overlay(alignment: .bottomTrailing) {
-            if model.isCropping, model.imageSize != .zero {
-                CropResolutionBadge(size: model.cropPixelSize)
-                    .padding(.trailing, 16)
-                    .padding(.bottom, 16)
-                    .transition(.opacity.combined(with: .scale(scale: 0.92, anchor: .bottomTrailing)))
+            if !isInspectorPresented, !model.isCropping, hasImage {
+                actionFooter
+                    .frame(width: 300)
+                    .padding(.trailing, 6)
+                    .padding(.bottom, AnnotationToolDock.height + AnnotationToolDock.bottomPadding)
+                    .transition(.rise)
             }
         }
-        .overlay(alignment: .bottomLeading) {
-            // Only inline saves/uploads (which fail with an image already on
-            // screen) land here; a load failure shows the full-canvas state
-            // above instead of stacking a second copy of the same message.
-            if let errorMessage = model.errorMessage, model.previewImage != nil {
-                Text(errorMessage)
-                    .font(.footnote)
-                    .foregroundStyle(.red)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 18)
-                    .padding(.vertical, 10)
-                    .background(.bar)
+        .motion(.morph, value: model.isCropping)
+        .motion(.morph, value: isInspectorPresented)
+    }
+
+    private var hasImage: Bool {
+        model.previewImage != nil && model.imageSize != .zero
+    }
+
+    /// The row floating along the bottom of the canvas: zoom on the left,
+    /// the tool dock - or, while cropping, the crop bar - in the middle, and
+    /// the crop size on the right. Messages rise above the middle.
+    private var bottomChrome: some View {
+        ZStack(alignment: .bottom) {
+            HStack(spacing: 8) {
+                AnnotationZoomControl(model: model)
+                if model.isPreviewDownscaled {
+                    LowResolutionPreviewNotice()
+                }
+                Spacer(minLength: 0)
+                if model.isCropping {
+                    CropResolutionBadge(size: model.cropPixelSize)
+                        .transition(.blurPop)
+                }
+            }
+            .frame(height: AnnotationToolDock.height)
+            .padding(.horizontal, 16)
+
+            VStack(spacing: 10) {
+                if let message = toastMessage {
+                    AnnotationDockToast(
+                        text: message.text,
+                        systemImage: message.isError ? "exclamationmark.triangle.fill" : "sparkles"
+                    )
+                    .id(message.text)
+                    .transition(.rise)
+                }
+
+                if model.isCropping {
+                    GlassCropBar(
+                        aspect: model.cropAspect,
+                        onAspectChange: { aspect in
+                            clearInspectorFocus()
+                            withAnimation(.morphIfAllowed) { model.setCropAspect(aspect) }
+                        },
+                        onReset: {
+                            clearInspectorFocus()
+                            withAnimation(.morphIfAllowed) { model.resetCrop() }
+                        },
+                        onCancel: exitCrop,
+                        onApply: applyCropAction
+                    )
+                    .frame(height: AnnotationToolDock.height)
+                    .transition(.rise)
+                } else {
+                    AnnotationToolDock(model: model, onEditorAction: clearInspectorFocus)
+                        .transition(.rise)
+                }
             }
         }
+        .padding(.bottom, AnnotationToolDock.bottomPadding)
+        .motion(.morph, value: toastMessage?.text)
+        .task(id: model.smartRedactionMessage) {
+            guard model.smartRedactionMessage != nil else { return }
+            try? await Task.sleep(for: .seconds(2.6))
+            guard !Task.isCancelled else { return }
+            model.smartRedactionMessage = nil
+        }
+    }
+
+    /// Inline save or upload failures, then automatic-redaction results.
+    private var toastMessage: (text: String, isError: Bool)? {
+        if let error = model.errorMessage, model.previewImage != nil { return (error, true) }
+        if let message = model.smartRedactionMessage { return (message, false) }
+        return nil
     }
 
     private func closeAfterLoadFailure() {
@@ -385,7 +370,7 @@ struct AnnotationEditorWindow: View {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(result.url, forType: .string)
                 ScreenshotHistoryStore.shared.setCloudURL(for: resultURL, cloudURL: result.url)
-                withAnimation(.snappy(duration: 0.2)) { didCopyLink = true }
+                withAnimation(.morphQuickIfAllowed) { didCopyLink = true }
             } catch {
                 model.errorMessage = "Upload failed: \(error.localizedDescription)"
             }
@@ -410,6 +395,9 @@ struct AnnotationEditorWindow: View {
                     originalURL: sourceURL,
                     historyURL: resultURL
                 )
+                saveFlash = true
+                try? await Task.sleep(for: .seconds(1.4))
+                saveFlash = false
             } catch {
                 model.errorMessage = "Failed to save annotation: \(error.localizedDescription)"
             }
