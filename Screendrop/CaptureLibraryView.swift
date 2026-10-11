@@ -214,27 +214,8 @@ struct CaptureLibraryView: View {
             } label: { Label("Sort", systemImage: "arrow.up.arrow.down") }
             .help("Sort captures")
         }
-        ToolbarItemGroup(placement: .primaryAction) {
-            Button { model.perform(.preview) } label: { Label("Quick Look", systemImage: "eye") }
-                .disabled(model.selection.count != 1 || model.isBusy)
-                .help("Quick Look (Space)")
-            Button { model.perform(.edit) } label: { Label("Edit", systemImage: "slider.horizontal.3") }
-                .disabled(model.selection.count != 1 || model.isBusy)
-                .help("Open in the screenshot or recording editor")
-            Menu {
-                Button("Copy", systemImage: "doc.on.doc") { model.perform(.copy) }
-                Button("Export…", systemImage: "square.and.arrow.up") { model.perform(.export) }
-                Button("Rename…", systemImage: "pencil") { model.perform(.rename) }
-                    .disabled(model.selection.count != 1)
-                Button("Reveal in Finder", systemImage: "folder") { model.perform(.reveal) }
-                Divider()
-                Button("Move to Trash…", systemImage: "trash", role: .destructive) { model.perform(.trash) }
-            } label: { Label("Actions", systemImage: "ellipsis.circle") }
-            .disabled(model.selection.isEmpty || model.isBusy)
-            .help("Capture actions")
-        }
         ToolbarItem(placement: .primaryAction) {
-            Button { inspectorVisible.toggle() } label: {
+            Button { withAnimation(.morphIfAllowed) { inspectorVisible.toggle() } } label: {
                 Label(inspectorVisible ? "Hide Inspector" : "Show Inspector", systemImage: "sidebar.right")
             }
             .keyboardShortcut("i", modifiers: [.command, .option])
