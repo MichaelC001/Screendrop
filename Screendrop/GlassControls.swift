@@ -2,14 +2,19 @@
 //  GlassControls.swift
 //  Screendrop
 //
-//  Liquid Glass building blocks for editor chrome. Each control is one glass
-//  shape; callers group them in a `GlassEffectContainer` and give each a
-//  `glassEffectID` so controls that appear or leave are born out of, and melt
-//  back into, their neighbours instead of fading in place.
+//  Liquid Glass building blocks for chrome: editor toolbars and docks, the
+//  floating recording bar, HUDs, the Library's action bar and Settings'
+//  buttons. Each control is one glass shape; callers group them in a
+//  `GlassEffectContainer` and give each a `glassEffectID` so controls that
+//  appear or leave are born out of, and melt back into, their neighbours
+//  instead of fading in place.
 //
 //  The container's spacing must stay below the resting gap between shapes:
 //  glass closer than the container spacing merges, so a wider resting gap is
 //  what lets a shape settle as its own clean capsule after the morph.
+//
+//  A selected or prominent control is inked solid (`Palette.accent`); every
+//  other control is clear glass with ink glyphs.
 //
 
 import AppKit
@@ -23,21 +28,45 @@ enum GlassMetrics {
     static let gap: CGFloat = 8
     /// Small icon buttons in docks and floating bars.
     static let buttonSize: CGFloat = 30
-    /// Primary actions, such as the inspector footer's export capsule.
+    /// Compact buttons inside forms and lists.
+    static let compactHeight: CGFloat = 26
+    /// Primary actions, such as an inspector footer's export capsule.
     static let actionHeight: CGFloat = 34
     /// Glyph size inside a `buttonSize` control.
     static let symbolSize: CGFloat = 12
 }
 
+private extension Glass {
+    /// Clear glass, ink glass when selected or prominent, or a functional tint.
+    static func screendrop(isInked: Bool, tint: Color?, isEnabled: Bool) -> Glass {
+        var glass = Glass.regular
+        if let tint {
+            glass = glass.tint(tint)
+        } else if isInked {
+            glass = glass.tint(Palette.accent)
+        }
+        return glass.interactive(isEnabled)
+    }
+}
+
+private func glassForeground(isInked: Bool, tint: Color?, isEnabled: Bool) -> Color {
+    if tint != nil { return .white.opacity(isEnabled ? 1 : 0.5) }
+    if isInked { return Palette.onAccent.opacity(isEnabled ? 1 : 0.5) }
+    return isEnabled ? Palette.label : Palette.disabledLabel
+}
+
 // MARK: - Buttons
 
-/// A round glass icon button. Disabled buttons keep their glass but drop the
-/// interactive press response and dim their glyph.
+/// A round glass icon button. `isOn` inks it solid, for the selected tool in
+/// a dock. Disabled buttons keep their glass but drop the interactive press
+/// response and dim their glyph.
 struct GlassIconButton: View {
     let systemImage: String
     let help: String
     var size: CGFloat = GlassMetrics.buttonSize
     var symbolSize: CGFloat = GlassMetrics.symbolSize
+    var isOn = false
+    /// A functional color such as `Palette.record`; wins over `isOn`.
     var tint: Color? = nil
     let action: () -> Void
 
@@ -47,34 +76,27 @@ struct GlassIconButton: View {
         Button(action: action) {
             Image(systemName: systemImage)
                 .font(.system(size: symbolSize, weight: .semibold))
-                .foregroundStyle(foreground)
+                .foregroundStyle(glassForeground(isInked: isOn, tint: tint, isEnabled: isEnabled))
                 .contentTransition(.symbolEffect(.replace))
                 .frame(width: size, height: size)
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
-        .glassEffect(glass, in: .circle)
+        .glassEffect(.screendrop(isInked: isOn, tint: tint, isEnabled: isEnabled), in: .circle)
         .help(help)
         .accessibilityLabel(help)
-    }
-
-    private var foreground: Color {
-        if tint != nil { return .white.opacity(isEnabled ? 1 : 0.5) }
-        return .primary.opacity(isEnabled ? 0.88 : 0.28)
-    }
-
-    private var glass: Glass {
-        var glass = Glass.regular
-        if let tint { glass = glass.tint(tint) }
-        return glass.interactive(isEnabled)
+        .accessibilityAddTraits(isOn ? .isSelected : [])
     }
 }
 
-/// A glass capsule holding an icon and a title.
+/// A glass capsule holding an optional icon and a title. `isProminent` inks
+/// it solid for the one primary action of a surface.
 struct GlassCapsuleButton: View {
     let title: String
     var systemImage: String? = nil
     var height: CGFloat = GlassMetrics.buttonSize
+    var isProminent = false
+    /// A functional color such as `Palette.record`; wins over `isProminent`.
     var tint: Color? = nil
     let action: () -> Void
 
@@ -85,31 +107,97 @@ struct GlassCapsuleButton: View {
             HStack(spacing: 6) {
                 if let systemImage {
                     Image(systemName: systemImage)
-                        .font(.system(size: GlassMetrics.symbolSize - 1, weight: .semibold))
+                        .font(.system(size: height < 28 ? 10.5 : GlassMetrics.symbolSize - 1, weight: .semibold))
+                        .contentTransition(.symbolEffect(.replace))
                 }
                 Text(title)
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: height < 28 ? 11.5 : 12, weight: .semibold))
                     .lineLimit(1)
                     .fixedSize()
+                    .contentTransition(.interpolate)
             }
-            .foregroundStyle(foreground)
-            .padding(.horizontal, 13)
+            .foregroundStyle(glassForeground(isInked: isProminent, tint: tint, isEnabled: isEnabled))
+            .padding(.horizontal, height < 28 ? 11 : 13)
             .frame(height: height)
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .glassEffect(glass, in: .capsule)
+        .glassEffect(.screendrop(isInked: isProminent, tint: tint, isEnabled: isEnabled), in: .capsule)
     }
+}
 
-    private var foreground: Color {
-        if tint != nil { return .white.opacity(isEnabled ? 1 : 0.5) }
-        return .primary.opacity(isEnabled ? 0.88 : 0.28)
+/// A glass capsule that opens a menu, drawn like `GlassCapsuleButton` with a
+/// quiet chevron so it reads as a choice rather than an action.
+struct GlassMenuButton<Content: View>: View {
+    let title: String
+    var systemImage: String? = nil
+    var height: CGFloat = GlassMetrics.buttonSize
+    var help: String? = nil
+    @ViewBuilder var content: () -> Content
+
+    @Environment(\.isEnabled) private var isEnabled
+
+    var body: some View {
+        Menu {
+            content()
+        } label: {
+            HStack(spacing: 6) {
+                if let systemImage {
+                    Image(systemName: systemImage)
+                        .font(.system(size: GlassMetrics.symbolSize - 1, weight: .semibold))
+                }
+                Text(title)
+                    .font(.system(size: height < 28 ? 11.5 : 12, weight: .semibold))
+                    .lineLimit(1)
+                    .contentTransition(.interpolate)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundStyle(Palette.secondaryLabel)
+            }
+            .foregroundStyle(isEnabled ? Palette.label : Palette.disabledLabel)
+            .padding(.horizontal, height < 28 ? 11 : 13)
+            .frame(height: height)
+            .contentShape(Capsule())
+        }
+        .menuStyle(.button)
+        .menuIndicator(.hidden)
+        .buttonStyle(.plain)
+        .fixedSize()
+        .glassEffect(.regular.interactive(isEnabled), in: .capsule)
+        .help(help ?? title)
     }
+}
 
-    private var glass: Glass {
-        var glass = Glass.regular
-        if let tint { glass = glass.tint(tint) }
-        return glass.interactive(isEnabled)
+/// An action whose glyph confirms it: the icon blurs into a check for a
+/// moment after the action runs, then settles back. For Copy and friends,
+/// where the result is otherwise invisible.
+struct GlassConfirmButton: View {
+    let systemImage: String
+    let help: String
+    var confirmation: String = "Copied"
+    var size: CGFloat = GlassMetrics.buttonSize
+    let action: () -> Void
+
+    @State private var confirmed = false
+    @State private var resetTask: Task<Void, Never>?
+
+    var body: some View {
+        GlassIconButton(
+            systemImage: confirmed ? "checkmark" : systemImage,
+            help: confirmed ? confirmation : help,
+            size: size
+        ) {
+            action()
+            confirmed = true
+            resetTask?.cancel()
+            resetTask = Task {
+                try? await Task.sleep(for: .seconds(1.4))
+                guard !Task.isCancelled else { return }
+                confirmed = false
+            }
+        }
+        .motion(.morphQuick, value: confirmed)
+        .onDisappear { resetTask?.cancel() }
     }
 }
 
@@ -135,7 +223,7 @@ struct SegmentedTabs<Value: Hashable>: View {
                 } label: {
                     Text(title)
                         .font(.system(size: 11.5, weight: selected ? .semibold : .medium))
-                        .foregroundStyle(selected ? Color.primary : Color.secondary)
+                        .foregroundStyle(selected ? Palette.label : Palette.secondaryLabel)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .contentShape(Capsule())
                         .glassEffect(selected ? .regular.interactive() : .identity, in: Capsule())
@@ -147,17 +235,17 @@ struct SegmentedTabs<Value: Hashable>: View {
         }
         .padding(Self.inset)
         .frame(height: segmentHeight + Self.inset * 2)
-        .background(Capsule().fill(Color.primary.opacity(0.06)))
+        .background(Capsule().fill(Palette.fill))
     }
 }
 
 // MARK: - Action capsule
 
 /// A primary action that carries its own job. Idle it reads as a button;
-/// running, the capsule fills as its own progress bar and offers Cancel on
-/// hover; when the job lands it flashes a check in green before settling
-/// back. Collapsed, it folds to an icon-only circle so a sibling action can
-/// take the room.
+/// running, the capsule fills with ink as its own progress bar and offers
+/// Cancel on hover; when the job lands it flashes a check in green before
+/// settling back. Collapsed, it folds to an icon-only circle so a sibling
+/// action can take the room.
 struct GlassActionCapsule: View {
     let title: String
     let systemImage: String
@@ -184,7 +272,7 @@ struct GlassActionCapsule: View {
                 ZStack(alignment: .leading) {
                     if isRunning {
                         Rectangle()
-                            .fill(Color.accentColor)
+                            .fill(Palette.accent)
                             .frame(width: filled)
                             .frame(maxHeight: .infinity)
                             .transition(.opacity)
@@ -196,7 +284,7 @@ struct GlassActionCapsule: View {
                         // The same label in reverse ink, revealed only over
                         // the filled part of the capsule.
                         label
-                            .foregroundStyle(.white)
+                            .foregroundStyle(Palette.onAccent)
                             .mask(alignment: .leading) {
                                 Rectangle().frame(width: filled)
                             }
@@ -263,18 +351,19 @@ struct GlassActionCapsule: View {
     }
 
     private var baseInk: Color {
-        if !isEnabled { return .primary.opacity(isProminent ? 0.45 : 0.3) }
-        if !isRunning, flash != nil || isProminent { return .white }
-        return .primary.opacity(0.9)
+        if !isEnabled { return isProminent ? Palette.onAccent.opacity(0.5) : Palette.disabledLabel }
+        if !isRunning, flash != nil { return .white }
+        if !isRunning, isProminent { return Palette.onAccent }
+        return Palette.label
     }
 
     private var glass: Glass {
         var glass = Glass.regular
-        if !isRunning, isEnabled {
-            if flash != nil {
-                glass = glass.tint(.green)
+        if !isRunning {
+            if flash != nil, isEnabled {
+                glass = glass.tint(Palette.success)
             } else if isProminent {
-                glass = glass.tint(.accentColor)
+                glass = glass.tint(Palette.accent.opacity(isEnabled ? 1 : 0.45))
             }
         }
         return glass.interactive(isEnabled)
@@ -283,5 +372,134 @@ struct GlassActionCapsule: View {
     private var helpText: String {
         if isRunning { return "Cancel \(title)" }
         return title
+    }
+}
+
+// MARK: - Small pieces
+
+/// One keyboard key drawn as a small glass cap.
+struct KeyCap: View {
+    let label: String
+    var isSmall = false
+
+    var body: some View {
+        Text(label)
+            .font(.system(size: isSmall ? 10.5 : 11.5, weight: .semibold, design: .rounded))
+            .foregroundStyle(Palette.label)
+            .padding(.horizontal, label.count > 1 ? (isSmall ? 5 : 7) : 0)
+            .frame(minWidth: isSmall ? 18 : 22, minHeight: isSmall ? 18 : 22)
+            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: isSmall ? 5 : 6, style: .continuous))
+    }
+}
+
+/// A shortcut as a row of key caps that melt together.
+struct KeyCaps: View {
+    let tokens: [String]
+    var isSmall = false
+
+    var body: some View {
+        GlassEffectContainer(spacing: 3) {
+            HStack(spacing: isSmall ? 3 : 4) {
+                ForEach(Array(tokens.enumerated()), id: \.offset) { _, token in
+                    KeyCap(label: token, isSmall: isSmall)
+                }
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(tokens.joined())
+    }
+}
+
+/// A quiet pill label, e.g. "Edited" or "Draft".
+struct Tag: View {
+    let text: String
+    var systemImage: String? = nil
+    var tint: Color? = nil
+
+    var body: some View {
+        HStack(spacing: 4) {
+            if let systemImage {
+                Image(systemName: systemImage)
+                    .font(.system(size: 8.5, weight: .bold))
+            }
+            Text(text)
+                .font(.dsMicro)
+        }
+        .foregroundStyle(tint ?? Palette.secondaryLabel)
+        .padding(.horizontal, 7)
+        .frame(height: 18)
+        .background((tint ?? Color.primary).opacity(tint == nil ? 0.07 : 0.14), in: Capsule())
+    }
+}
+
+/// A small status light, e.g. a setting that needs attention.
+struct StatusDot: View {
+    var color: Color = Palette.success
+
+    var body: some View {
+        Circle()
+            .fill(color)
+            .frame(width: 7, height: 7)
+            .accessibilityHidden(true)
+    }
+}
+
+// MARK: - HUD surface
+
+extension View {
+    /// The surface of floating HUDs and toasts: Liquid Glass with a hairline
+    /// so it keeps its edge over content of the same brightness.
+    func glassHUD(radius: CGFloat = Radius.hud) -> some View {
+        let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
+        return glassEffect(.regular, in: shape)
+            .overlay { shape.strokeBorder(Color.ink.opacity(0.10), lineWidth: 0.5).allowsHitTesting(false) }
+    }
+}
+
+// MARK: - Empty state
+
+/// What a surface shows when it has nothing yet: a glyph on glass, a title,
+/// one line of guidance and the actions that fill it.
+struct EmptyStateView<Actions: View>: View {
+    let systemImage: String
+    let title: String
+    let message: String
+    @ViewBuilder var actions: () -> Actions
+
+    var body: some View {
+        VStack(spacing: Space.l) {
+            Image(systemName: systemImage)
+                .font(.system(size: 22, weight: .medium))
+                .foregroundStyle(Palette.secondaryLabel)
+                .frame(width: 56, height: 56)
+                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .padding(.bottom, Space.xs)
+
+            Text(title)
+                .font(.dsTitle)
+                .foregroundStyle(Palette.label)
+
+            Text(message)
+                .font(.dsCallout)
+                .foregroundStyle(Palette.secondaryLabel)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 300)
+                .fixedSize(horizontal: false, vertical: true)
+
+            GlassEffectContainer(spacing: GlassMetrics.containerSpacing) {
+                HStack(spacing: GlassMetrics.gap) {
+                    actions()
+                }
+            }
+            .padding(.top, Space.s)
+        }
+        .padding(Space.xxxl)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+extension EmptyStateView where Actions == EmptyView {
+    init(systemImage: String, title: String, message: String) {
+        self.init(systemImage: systemImage, title: title, message: message) { EmptyView() }
     }
 }

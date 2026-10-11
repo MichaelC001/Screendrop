@@ -487,7 +487,7 @@ struct StudioInspector: View {
                         }
                         .buttonStyle(.plain)
                         .font(.inspectorValue)
-                        .foregroundStyle(Color.accentColor)
+                        .foregroundStyle(Palette.highlight)
                     }
                     .transition(AnyTransition(.blurReplace))
                 } else if selected.isEnabled {
@@ -1006,7 +1006,7 @@ struct StudioInspector: View {
         HStack(spacing: 7) {
             Image(systemName: "waveform")
                 .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(Palette.highlight)
 
             Text(replacement.displayName)
                 .font(.inspectorValue)
@@ -1108,7 +1108,7 @@ private struct StudioSection<Content: View, Accessory: View>: View {
                     if let symbol {
                         Image(systemName: symbol)
                             .font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(Color.accentColor)
+                            .foregroundStyle(Palette.highlight)
                     }
 
                     Text(title)
@@ -1222,7 +1222,7 @@ private struct StudioSubtitleRow: View {
             } label: {
                 Text(timestamp ?? "–:––")
                     .font(.system(size: 10.5, weight: .medium).monospacedDigit())
-                    .foregroundStyle(isActive ? Color.accentColor : .secondary)
+                    .foregroundStyle(isActive ? Palette.highlight : .secondary)
             }
             .buttonStyle(.plain)
             .disabled(editorTime == nil)
@@ -1249,7 +1249,7 @@ private struct StudioSubtitleRow: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
-        .background(isActive ? Color.accentColor.opacity(0.14) : .clear)
+        .background(isActive ? Palette.highlight.opacity(0.14) : .clear)
         .contentShape(Rectangle())
         .opacity(editorTime == nil ? 0.5 : 1)
         .onTapGesture {
@@ -1410,9 +1410,9 @@ private struct StudioTranscriptWordView: View {
 
     private var background: Color {
         if isSelected {
-            Color.accentColor.opacity(isCut ? 0.12 : 0.24)
+            Palette.highlight.opacity(isCut ? 0.12 : 0.24)
         } else if isActive, !isCut {
-            Color.accentColor.opacity(0.2)
+            Palette.highlight.opacity(0.2)
         } else if isFiller, !isCut {
             Color.orange.opacity(0.16)
         } else {

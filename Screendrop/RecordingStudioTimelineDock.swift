@@ -596,7 +596,7 @@ private struct StudioTimelinePlayhead: View {
                     headHeight: head.height,
                     stemOffset: x - headX
                 )
-                .fill(Color.accentColor)
+                .fill(Palette.highlight)
                 .shadow(color: .black.opacity(0.28), radius: 1.5, y: 0.5)
                 .overlay {
                     if isExpanded {
@@ -969,14 +969,14 @@ private struct StudioZoomLane: View {
                     cornerRadius: StudioZoomLaneMetrics.blockCornerRadius,
                     style: .continuous
                 )
-                    .fill(Color.accentColor.opacity(0.22))
+                    .fill(Palette.highlight.opacity(0.22))
                     .overlay {
                         RoundedRectangle(
                             cornerRadius: StudioZoomLaneMetrics.blockCornerRadius,
                             style: .continuous
                         )
                         .strokeBorder(
-                            Color.accentColor.opacity(0.8),
+                            Palette.highlight.opacity(0.8),
                             style: StrokeStyle(lineWidth: 1.5, dash: [4, 3])
                         )
                     }
@@ -1179,8 +1179,8 @@ private struct StudioZoomCueBlock: View {
             shape.fill(
                 LinearGradient(
                     colors: [
-                        Color.accentColor.opacity(isSelected ? 1 : 0.88),
-                        Color.accentColor.opacity(isSelected ? 0.86 : 0.72)
+                        Palette.highlight.opacity(isSelected ? 1 : 0.88),
+                        Palette.highlight.opacity(isSelected ? 0.86 : 0.72)
                     ],
                     startPoint: .top,
                     endPoint: .bottom

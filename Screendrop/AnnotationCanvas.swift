@@ -701,11 +701,11 @@ struct AnnotationCanvas: View {
 private struct AnnotationMarqueeSelectionView: View {
     var body: some View {
         Rectangle()
-            .fill(Color.accentColor.opacity(0.08))
+            .fill(Palette.highlight.opacity(0.08))
             .overlay {
                 Rectangle()
                     .stroke(
-                        Color.accentColor.opacity(0.65),
+                        Palette.highlight.opacity(0.65),
                         style: StrokeStyle(lineWidth: 1.5, dash: [5, 4])
                     )
             }

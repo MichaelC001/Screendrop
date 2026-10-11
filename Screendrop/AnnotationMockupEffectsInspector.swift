@@ -171,10 +171,10 @@ private struct AnnotationFocusPositionPad: View {
 
                 if mode == .radial {
                     Circle()
-                        .fill(Color.accentColor.opacity(0.055))
+                        .fill(Palette.highlight.opacity(0.055))
                         .overlay {
                             Circle()
-                                .stroke(Color.accentColor.opacity(0.34), lineWidth: 1)
+                                .stroke(Palette.highlight.opacity(0.34), lineWidth: 1)
                         }
                         .frame(
                             width: geometry.radialFocusRadius * 2,
@@ -183,10 +183,10 @@ private struct AnnotationFocusPositionPad: View {
                         .position(point)
                 } else {
                     RoundedRectangle(cornerRadius: 3, style: .continuous)
-                        .fill(Color.accentColor.opacity(0.055))
+                        .fill(Palette.highlight.opacity(0.055))
                         .overlay {
                             RoundedRectangle(cornerRadius: 3, style: .continuous)
-                                .stroke(Color.accentColor.opacity(0.28), lineWidth: 1)
+                                .stroke(Palette.highlight.opacity(0.28), lineWidth: 1)
                         }
                         .frame(
                             width: hypot(proxy.size.width, proxy.size.height) * 2,
@@ -197,7 +197,7 @@ private struct AnnotationFocusPositionPad: View {
                 }
 
                 Circle()
-                    .fill(Color.accentColor)
+                    .fill(Palette.highlight)
                     .frame(width: isDragging ? 12 : 10, height: isDragging ? 12 : 10)
                     .overlay(Circle().stroke(Color.white.opacity(0.9), lineWidth: 1.5))
                     .shadow(color: Color.black.opacity(0.22), radius: 3, y: 1)

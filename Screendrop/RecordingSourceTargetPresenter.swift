@@ -338,9 +338,9 @@ private struct RecordingSourceTargetOverlay: View {
                 let shape = RoundedRectangle(cornerRadius: highlightRadius(for: target), style: .continuous)
 
                 shape
-                    .fill(Color.accentColor.opacity(0.28))
+                    .fill(Palette.highlight.opacity(0.28))
                     .overlay {
-                        shape.strokeBorder(Color.accentColor, lineWidth: 2)
+                        shape.strokeBorder(Palette.highlight, lineWidth: 2)
                     }
                     .frame(width: local.width, height: local.height)
                     .position(x: local.midX, y: local.midY)
@@ -428,7 +428,7 @@ private struct RecordingSourceTargetCard: View {
             .foregroundStyle(.white)
             .padding(.horizontal, 14)
             .frame(height: 32)
-            .background(Color.accentColor, in: Capsule())
+            .background(Palette.highlight, in: Capsule())
             .overlay {
                 Capsule().strokeBorder(.white.opacity(0.25), lineWidth: 0.5)
             }

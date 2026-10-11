@@ -266,7 +266,7 @@ private struct StudioCropBar: View {
                 .keyboardShortcut(.cancelAction)
                 .glassEffectID("cancel", in: glass)
 
-                GlassCapsuleButton(title: "Crop", systemImage: "checkmark", tint: .accentColor) {
+                GlassCapsuleButton(title: "Crop", systemImage: "checkmark", isProminent: true) {
                     withAnimation(.morphIfAllowed) {
                         model.applyVideoCrop()
                     }
@@ -1172,7 +1172,7 @@ private struct StudioCameraBubble: View {
                             cornerRadius: layout.bubbleCornerRadius + Self.hoverRingPadding,
                             style: .continuous
                         )
-                        .strokeBorder(Color.accentColor, lineWidth: 2)
+                        .strokeBorder(Palette.highlight, lineWidth: 2)
                         .padding(-Self.hoverRingPadding)
                         .allowsHitTesting(false)
                     }
@@ -1199,13 +1199,13 @@ private struct StudioCameraBubble: View {
         ZStack(alignment: .topLeading) {
             if let x = guides.x {
                 Rectangle()
-                    .fill(Color.accentColor)
+                    .fill(Palette.highlight)
                     .frame(width: 1, height: canvas.height)
                     .offset(x: x - 0.5)
             }
             if let y = guides.y {
                 Rectangle()
-                    .fill(Color.accentColor)
+                    .fill(Palette.highlight)
                     .frame(width: canvas.width, height: 1)
                     .offset(y: y - 0.5)
             }

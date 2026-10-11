@@ -321,8 +321,8 @@ struct InspectorBackgroundFillPicker: View {
                     }
                 } label: {
                     Text(isExpanded ? "Show Less" : "Show All \(count)")
-                        .font(.inspectorLabel)
-                        .foregroundStyle(Color.accentColor)
+                        .font(.inspectorLabel.weight(.medium))
+                        .foregroundStyle(Palette.label)
                         .contentTransition(.interpolate)
                         .contentShape(Rectangle())
                 }
@@ -651,7 +651,7 @@ private struct AnnotationWallpaperPackInstallView: View {
                     } else {
                         Image(systemName: "icloud.and.arrow.down")
                             .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(Color.accentColor)
+                            .foregroundStyle(Palette.secondaryLabel)
                     }
 
                     VStack(alignment: .leading, spacing: 1) {

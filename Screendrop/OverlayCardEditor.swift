@@ -218,7 +218,7 @@ struct OverlayCardEditor: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(highlighted ? Color.accentColor : .clear, lineWidth: 2)
+                .strokeBorder(highlighted ? Palette.highlight : .clear, lineWidth: 2)
         )
         .animation(.spring(response: 0.3, dampingFraction: 0.7), value: hoveredZone)
         .animation(.spring(response: 0.42, dampingFraction: 0.78), value: layout)
@@ -333,9 +333,9 @@ struct OverlayCardEditor: View {
 
     @ViewBuilder
     private func slotPlaceholder(isCircle: Bool, highlighted: Bool) -> some View {
-        let stroke = highlighted ? Color.accentColor : Color.white.opacity(0.28)
+        let stroke = highlighted ? Palette.highlight : Color.white.opacity(0.28)
         let style = StrokeStyle(lineWidth: highlighted ? 2 : 1.5, dash: highlighted ? [] : [4, 4])
-        let fill = highlighted ? Color.accentColor.opacity(0.18) : Color.clear
+        let fill = highlighted ? Palette.highlight.opacity(0.18) : Color.clear
 
         Group {
             if isCircle {

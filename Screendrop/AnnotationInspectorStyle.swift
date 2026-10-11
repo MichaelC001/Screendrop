@@ -60,7 +60,7 @@ enum InspectorControlPalette {
     /// wash out to nothing. Any presentation hosting these controls has to
     /// paint this itself.
     static func panelBackground(for colorScheme: ColorScheme) -> Color {
-        colorScheme == .dark ? Color(nsColor: .windowBackgroundColor) : .white
+        Palette.panel
     }
 
     static func trackFill(for colorScheme: ColorScheme) -> Color {
@@ -71,8 +71,8 @@ enum InspectorControlPalette {
         Color.primary.opacity(colorScheme == .dark ? 0.10 : 0.075)
     }
 
-    /// A selected segment or tool: a raised white chip in light mode, a
-    /// brighter fill in dark mode. No outline in either.
+    /// A selected tool cell: a raised white chip in light mode, a brighter
+    /// fill in dark mode. No outline in either.
     static func selectedChipFill(for colorScheme: ColorScheme) -> Color {
         colorScheme == .dark ? Color.white.opacity(0.13) : .white
     }
@@ -81,9 +81,11 @@ enum InspectorControlPalette {
         colorScheme == .dark ? .clear : Color.black.opacity(0.14)
     }
 
-    static var hoverFill: Color { Color.primary.opacity(0.04) }
-    static var border: Color { Color.primary.opacity(0.10) }
-    static var selectedForeground: Color { Color.primary.opacity(0.92) }
+    static var hoverFill: Color { Palette.hoverFill.opacity(0.6) }
+    static var border: Color { Palette.hairline }
+    static var selectedForeground: Color { Palette.label }
+    /// The ring around a selected swatch or tile.
+    static var selectionRing: Color { Palette.accent }
 }
 
 // MARK: - Typography
@@ -337,8 +339,8 @@ struct InspectorToggle: View {
                 }
                 .overlay(alignment: isOn ? .trailing : .leading) {
                     Circle()
-                        .fill(Color.white)
-                        .shadow(color: .black.opacity(0.2), radius: 1, y: 0.5)
+                        .fill(isOn ? Palette.onAccent : Color.white)
+                        .shadow(color: .black.opacity(isOn ? 0 : 0.2), radius: 1, y: 0.5)
                         .padding(Self.knobInset)
                 }
                 .frame(width: Self.trackSize.width, height: Self.trackSize.height)
@@ -357,7 +359,7 @@ struct InspectorToggle: View {
 
     private var trackFill: Color {
         if isOn {
-            return isHovering && isEnabled ? Color.accentColor.opacity(0.88) : Color.accentColor
+            return isHovering && isEnabled ? Palette.accent.opacity(0.82) : Palette.accent
         }
         return Color.primary.opacity(isHovering && isEnabled ? 0.2 : 0.14)
     }
@@ -654,7 +656,7 @@ struct InspectorTile<Content: View>: View {
                 .overlay {
                     if isSelected {
                         RoundedRectangle(cornerRadius: cornerRadius + 2.5, style: .continuous)
-                            .strokeBorder(Color.accentColor, lineWidth: 2)
+                            .strokeBorder(InspectorControlPalette.selectionRing, lineWidth: 2)
                     }
                 }
                 .contentShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))

@@ -320,7 +320,7 @@ struct StudioProgressRing: View {
                 .stroke(Color.primary.opacity(0.15), lineWidth: 2)
             Circle()
                 .trim(from: 0, to: max(0.03, min(1, progress)))
-                .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                .stroke(Palette.highlight, style: StrokeStyle(lineWidth: 2, lineCap: .round))
                 .rotationEffect(.degrees(-90))
         }
         .frame(width: size, height: size)

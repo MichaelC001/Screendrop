@@ -141,7 +141,7 @@ struct AnnotationSwatchStrip: View {
             .padding(2.5)
             .overlay {
                 if isSelected {
-                    Circle().strokeBorder(Color.accentColor, lineWidth: 2)
+                    Circle().strokeBorder(InspectorControlPalette.selectionRing, lineWidth: 2)
                 }
             }
             .contentShape(Circle().inset(by: -2))

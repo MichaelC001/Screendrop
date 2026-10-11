@@ -193,7 +193,7 @@ struct InspectorSlider: View {
         .background(shape.fill(fieldFill))
         .overlay {
             if focusedPart != nil {
-                shape.stroke(Color.accentColor.opacity(0.72), lineWidth: 1)
+                shape.stroke(Palette.accent.opacity(0.45), lineWidth: 1)
             }
         }
         .onHover { isHovering = $0 }

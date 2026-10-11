@@ -45,10 +45,10 @@ struct RecordingZoomFocusPad: View {
                     .stroke(Color.primary.opacity(0.10), lineWidth: 0.5)
 
                 RoundedRectangle(cornerRadius: 5, style: .continuous)
-                    .fill(Color.accentColor.opacity(0.055))
+                    .fill(Palette.highlight.opacity(0.055))
                     .overlay {
                         RoundedRectangle(cornerRadius: 5, style: .continuous)
-                            .stroke(Color.accentColor.opacity(0.34), lineWidth: 1)
+                            .stroke(Palette.highlight.opacity(0.34), lineWidth: 1)
                     }
                     .frame(width: viewportSize.width, height: viewportSize.height)
                     .position(viewportCenter)
@@ -58,7 +58,7 @@ struct RecordingZoomFocusPad: View {
                     )
 
                 Circle()
-                    .fill(Color.accentColor)
+                    .fill(Palette.highlight)
                     .frame(width: isDragging ? 12 : 10, height: isDragging ? 12 : 10)
                     .overlay(Circle().stroke(Color.white.opacity(0.9), lineWidth: 1.5))
                     .shadow(color: Color.black.opacity(0.22), radius: 3, y: 1)
