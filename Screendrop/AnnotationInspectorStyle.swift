@@ -345,28 +345,41 @@ struct InspectorResetButton: View {
     }
 }
 
-/// The inspector's on/off switch for section headers. A compact capsule that
-/// uses the panel's track and border tokens when off and the accent when on,
-/// so it sits alongside the header's icon buttons instead of AppKit chrome.
+/// Screendrop's one on/off switch: an ink track with a knob that springs
+/// across. Inspectors use the small size in section headers; Settings forms
+/// get the regular size through `.toggleStyle(.ink)`.
 struct InspectorToggle: View {
+    enum Size {
+        case small
+        case regular
+
+        var track: CGSize {
+            switch self {
+            case .small: CGSize(width: 26, height: 15)
+            case .regular: CGSize(width: 34, height: 20)
+            }
+        }
+    }
+
     let title: String
     @Binding var isOn: Bool
+    var size: Size = .small
 
-    private static let trackSize = CGSize(width: 26, height: 15)
     private static let knobInset: CGFloat = 2
 
     @Environment(\.isEnabled) private var isEnabled
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     @State private var isHovering = false
 
-    init(_ title: String, isOn: Binding<Bool>) {
+    init(_ title: String, isOn: Binding<Bool>, size: Size = .small) {
         self.title = title
         self._isOn = isOn
+        self.size = size
     }
 
     var body: some View {
         Button {
-            withAnimation(accessibilityReduceMotion ? nil : .snappy(duration: 0.16)) {
+            withAnimation(accessibilityReduceMotion ? nil : .morphQuick) {
                 isOn.toggle()
             }
         } label: {
@@ -384,8 +397,8 @@ struct InspectorToggle: View {
                         .shadow(color: .black.opacity(isOn ? 0 : 0.2), radius: 1, y: 0.5)
                         .padding(Self.knobInset)
                 }
-                .frame(width: Self.trackSize.width, height: Self.trackSize.height)
-                .frame(height: 24)
+                .frame(width: size.track.width, height: size.track.height)
+                .frame(height: max(24, size.track.height))
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -404,6 +417,28 @@ struct InspectorToggle: View {
         }
         return Color.primary.opacity(isHovering && isEnabled ? 0.2 : 0.14)
     }
+}
+
+/// The ink switch as a form toggle: the label on the leading edge, the
+/// switch trailing, the way a native switch sits in a grouped form.
+struct InkSwitchToggleStyle: ToggleStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(alignment: .center, spacing: 12) {
+            configuration.label
+                .frame(maxWidth: .infinity, alignment: .leading)
+            InspectorToggle("", isOn: configuration.$isOn, size: .regular)
+                .accessibilityHidden(true)
+        }
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
+        .accessibilityValue(configuration.isOn ? "On" : "Off")
+        .accessibilityAddTraits(.isToggle)
+        .accessibilityAction { configuration.isOn.toggle() }
+    }
+}
+
+extension ToggleStyle where Self == InkSwitchToggleStyle {
+    static var ink: InkSwitchToggleStyle { InkSwitchToggleStyle() }
 }
 
 /// A labelled on/off row inside a section body.

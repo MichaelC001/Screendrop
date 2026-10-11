@@ -29,12 +29,12 @@ enum SettingsTab: String, CaseIterable, Identifiable {
 
     var systemImage: String {
         switch self {
-        case .general: "gearshape"
-        case .screenshots: "photo.on.rectangle.angled"
-        case .video: "video"
-        case .overlay: "square.on.square"
-        case .cloud: "icloud.and.arrow.up"
-        case .about: "info.circle"
+        case .general: "gearshape.fill"
+        case .screenshots: "camera.viewfinder"
+        case .video: "record.circle.fill"
+        case .overlay: "square.stack.fill"
+        case .cloud: "icloud.fill"
+        case .about: "info.circle.fill"
         }
     }
 }
@@ -49,18 +49,11 @@ final class SettingsNavigation {
     private init() {}
 }
 
-private enum AppVersion {
-    static let displayString: String = {
-        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0"
-        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0"
-        return "Version \(version) (\(build))"
-    }()
-}
-
 // MARK: - Main Settings View
 
 struct SettingsView: View {
     @State private var navigation = SettingsNavigation.shared
+    @State private var permissions = SettingsPermissions()
     @State private var navigationHistory: [SettingsTab] = [.general]
     @State private var historyIndex = 0
     @State private var isHistoryNavigation = false
@@ -72,6 +65,9 @@ struct SettingsView: View {
     var body: some View {
         NavigationSplitView(columnVisibility: .constant(.all)) {
             SettingsSidebarView(selectedTab: $navigation.selectedTab)
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    SettingsStatusFooter(permissions: permissions)
+                }
                 .frame(width: 200)
                 .navigationSplitViewColumnWidth(
                     min: 200,
@@ -81,6 +77,7 @@ struct SettingsView: View {
                 .toolbar(removing: .sidebarToggle)
         } detail: {
             SettingsDetailView(tab: activeTab)
+                .environment(permissions)
         }
         .navigationTitle("Settings")
         .navigationSplitViewStyle(.balanced)
@@ -109,7 +106,9 @@ struct SettingsView: View {
         .onAppear {
             navigationHistory = [activeTab]
             historyIndex = 0
+            permissions.beginWatching()
         }
+        .onDisappear { permissions.endWatching() }
         .onChange(of: navigation.selectedTab) { _, _ in
             recordNavigation()
         }
@@ -164,8 +163,6 @@ private struct SettingsSidebarView: View {
                 SettingsSidebarRow(tab: tab)
                     .tag(tab)
             }
-
-            SettingsSidebarFooter()
         }
         .listStyle(.sidebar)
         .scrollEdgeEffectSoftIfAvailable()
@@ -180,23 +177,12 @@ private struct SettingsSidebarRow: View {
         Label {
             Text(tab.title)
         } icon: {
+            // Symbols have different natural widths; a fixed slot keeps every
+            // title on the same leading edge.
             Image(systemName: tab.systemImage)
+                .frame(width: 20, alignment: .center)
         }
-        .foregroundStyle(.primary)
-    }
-}
-
-private struct SettingsSidebarFooter: View {
-    var body: some View {
-        Text(AppVersion.displayString)
-            .font(.footnote)
-            .foregroundStyle(.tertiary)
-            .fontDesign(.monospaced)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 8)
-            .listRowSeparator(.hidden)
-            .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 6, trailing: 0))
+        .listItemTint(.monochrome)
     }
 }
 
@@ -228,28 +214,6 @@ private struct SettingsDetailView: View {
 }
 
 // MARK: - Helpers
-
-/// The same label rhythm across settings panes, with descriptions allowed to
-/// wrap at the window's minimum width instead of being vertically truncated.
-struct SettingsControlLabel: View {
-    let title: String
-    let detail: String
-
-    init(_ title: String, detail: String) {
-        self.title = title
-        self.detail = detail
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title)
-            Text(detail)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-        .fixedSize(horizontal: false, vertical: true)
-    }
-}
 
 extension URL {
     var abbreviatedPath: String {

@@ -76,7 +76,7 @@ struct CloudUploadOptionsPopover: View {
                 Spacer()
                 Toggle("Allow comments & likes", isOn: $socialEnabled)
                     .labelsHidden()
-                    .toggleStyle(.switch)
+                    .toggleStyle(.ink)
                     .controlSize(.mini)
             }
 

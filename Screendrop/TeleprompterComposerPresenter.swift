@@ -148,11 +148,7 @@ private struct TeleprompterComposerView: View {
 
             Spacer()
 
-            Toggle("Show while recording", isOn: $isEnabled)
-                .toggleStyle(.switch)
-                .controlSize(.small)
-                .labelsHidden()
-                .tint(.green)
+            InspectorToggle("Show while recording", isOn: $isEnabled)
                 .help(isEnabled
                     ? "Teleprompter will appear in the notch while recording"
                     : "Turn on to show the script in the notch while recording")

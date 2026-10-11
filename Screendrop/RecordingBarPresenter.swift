@@ -340,15 +340,12 @@ private struct RecordingBarView: View {
     private var visibilityBanner: some View {
         HStack(spacing: 8) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(Color(nsColor: .systemOrange))
+                .foregroundStyle(Palette.warning)
                 .accessibilityHidden(true)
             Text("Screendrop windows will be captured")
                 .foregroundStyle(BarMetrics.activeTint)
             Spacer(minLength: 8)
-            Toggle("Include Screendrop windows in captures", isOn: $includeAppWindowsInCaptures)
-                .labelsHidden()
-                .toggleStyle(.switch)
-                .controlSize(.mini)
+            InspectorToggle("Include Screendrop windows in captures", isOn: $includeAppWindowsInCaptures)
                 .accessibilityHint("Turn off to hide Screendrop windows from screenshots and recordings")
         }
         .font(.system(size: 11, weight: .medium))

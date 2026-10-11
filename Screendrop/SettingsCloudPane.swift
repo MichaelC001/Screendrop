@@ -45,7 +45,7 @@ struct CloudSettingsPane: View {
     }
 
     var body: some View {
-        Form {
+        SettingsPage {
             // MARK: - Connection
 
             Section {
@@ -92,37 +92,32 @@ struct CloudSettingsPane: View {
                 }
 
                 HStack(spacing: 8) {
-                    Button {
+                    SettingsButton(
+                        tokenCopied ? "Copied" : "Copy Token",
+                        systemImage: tokenCopied ? "checkmark" : "doc.on.doc"
+                    ) {
                         copyToken()
-                    } label: {
-                        Label(tokenCopied ? "Copied" : "Copy Token", systemImage: tokenCopied ? "checkmark" : "doc.on.doc")
                     }
-                    .controlSize(.small)
                     .disabled(uploadToken.isEmpty)
+                    .motion(.morphQuick, value: tokenCopied)
 
-                    Button("Regenerate") {
+                    SettingsButton("Regenerate", systemImage: "arrow.triangle.2.circlepath") {
                         regenerateToken()
                     }
-                    .controlSize(.small)
 
                     Spacer()
 
                     if case .checking = workerStatus {
                         connectionStatusIndicator(workerStatus)
                     }
-                    Button {
+                    SettingsButton(
+                        workerStatus == .connected ? "Connected" : "Verify Connection",
+                        systemImage: workerStatus == .connected ? "checkmark.circle.fill" : "bolt.horizontal"
+                    ) {
                         Task { await testWorkerConnection() }
-                    } label: {
-                        HStack(spacing: 5) {
-                            if workerStatus == .connected {
-                                Image(systemName: "checkmark.circle.fill")
-                                    .foregroundStyle(.green)
-                            }
-                            Text("Verify Connection")
-                        }
                     }
-                    .controlSize(.small)
                     .disabled(!isWorkerConfigured)
+                    .motion(.morphQuick, value: workerStatus == .connected)
                 }
             } header: {
                 Text("Connection")
@@ -130,7 +125,7 @@ struct CloudSettingsPane: View {
                 VStack(alignment: .leading, spacing: 6) {
                     if case .failed(let message) = workerStatus {
                         Label(message, systemImage: "xmark.circle.fill")
-                            .foregroundStyle(.red)
+                            .foregroundStyle(Palette.record)
                             .font(.callout)
                     }
                     Text("Paste this token as the **UPLOAD_TOKEN** secret when you deploy the worker to Cloudflare.")
@@ -143,7 +138,7 @@ struct CloudSettingsPane: View {
                 Section {
                     HStack(spacing: 10) {
                         Image(systemName: "arrow.up.circle.fill")
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(Palette.warning)
                             .font(.title3)
                         VStack(alignment: .leading, spacing: 2) {
                             Text("Worker update available")
@@ -155,12 +150,11 @@ struct CloudSettingsPane: View {
                             }
                         }
                         Spacer()
-                        Button("How to update") {
+                        SettingsButton("How to Update") {
                             if let url = URL(string: updateGuideURL) {
                                 NSWorkspace.shared.open(url)
                             }
                         }
-                        .controlSize(.small)
                     }
                 }
             }
@@ -168,20 +162,19 @@ struct CloudSettingsPane: View {
             // MARK: - Setup Guide
 
             Section {
-                Button {
+                GlassActionCapsule(
+                    title: "Deploy to Cloudflare",
+                    systemImage: "cloud.fill",
+                    isProminent: true
+                ) {
                     if let url = URL(string: "https://deploy.workers.cloudflare.com/?url=https://github.com/fayazara/screendrop-worker") {
                         NSWorkspace.shared.open(url)
                     }
-                } label: {
-                    Label("Deploy to Cloudflare", systemImage: "cloud.fill")
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 6)
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(.orange)
+                .padding(.vertical, 2)
 
                 Button {
-                    withAnimation(.easeInOut(duration: 0.2)) {
+                    withAnimation(.morphIfAllowed) {
                         setupGuideExpanded.toggle()
                     }
                 } label: {
@@ -214,7 +207,7 @@ struct CloudSettingsPane: View {
 
                         SetupVideoPlayer()
                             .frame(height: 200)
-                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                            .clipShape(RoundedRectangle(cornerRadius: Radius.thumbnail, style: .continuous))
                     }
                     .padding(.top, 4)
                 }
@@ -222,18 +215,14 @@ struct CloudSettingsPane: View {
                 HStack {
                     Text("Setup Guide")
                     Spacer()
-                    Button("View on GitHub") {
+                    SettingsButton("View on GitHub") {
                         if let url = URL(string: "https://github.com/fayazara/screendrop-worker") {
                             NSWorkspace.shared.open(url)
                         }
                     }
-                    .controlSize(.small)
                 }
             }
         }
-        .formStyle(.grouped)
-        .scrollContentBackground(.hidden)
-        .contentMargins(.top, 8, for: .scrollContent)
         .toolbar {
             ToolbarItem(placement: .automatic) {
                 HStack(spacing: 6) {
@@ -450,9 +439,9 @@ struct CloudSettingsPane: View {
     private var overallStatusColor: Color {
         if isWorkerConfigured {
             if workerStatus == .connected {
-                return .green
+                return Palette.success
             }
-            return .orange
+            return Palette.warning
         }
         return .gray
     }
@@ -478,16 +467,16 @@ struct CloudSettingsPane: View {
                 .frame(width: 16, height: 16)
         case .connected:
             Image(systemName: "checkmark.circle.fill")
-                .foregroundStyle(.green)
+                .foregroundStyle(Palette.success)
                 .font(.system(size: 13))
         case .failed(let message):
             HStack(spacing: 4) {
                 Image(systemName: "xmark.circle.fill")
-                    .foregroundStyle(.red)
+                    .foregroundStyle(Palette.record)
                     .font(.system(size: 13))
                 Text(message)
                     .font(.system(size: 11))
-                    .foregroundStyle(.red)
+                    .foregroundStyle(Palette.record)
                     .lineLimit(1)
             }
         }
@@ -514,9 +503,9 @@ private struct SetupStepView: View {
         HStack(alignment: .top, spacing: 10) {
             Text("\(number)")
                 .font(.system(size: 11, weight: .bold, design: .rounded))
-                .foregroundStyle(.white)
-                .frame(width: 20, height: 20)
-                .background(Circle().fill(.tertiary))
+                .foregroundStyle(Palette.label)
+                .frame(width: 22, height: 22)
+                .glassEffect(.regular, in: .circle)
 
             Text(text)
                 .font(.system(size: 12))

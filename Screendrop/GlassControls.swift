@@ -43,7 +43,7 @@ private extension Glass {
         if let tint {
             glass = glass.tint(tint)
         } else if isInked {
-            glass = glass.tint(Palette.accent)
+            glass = glass.tint(Palette.accent.opacity(isEnabled ? 1 : 0.35))
         }
         return glass.interactive(isEnabled)
     }

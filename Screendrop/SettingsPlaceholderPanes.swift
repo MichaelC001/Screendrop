@@ -5,7 +5,7 @@ struct VideoSettingsPane: View {
     @AppStorage(ScreendropPreferences.revealExportInFinderKey) private var revealExportInFinder = true
 
     var body: some View {
-        Form {
+        SettingsPage {
             CaptureHotkeySettingsSection(actions: [.screenRecording])
 
             AfterCaptureActionsSection(type: .recording, title: "After Recording")
@@ -17,12 +17,12 @@ struct VideoSettingsPane: View {
                         detail: "Select the exported file in Finder once the render finishes."
                     )
                 }
-                .toggleStyle(.switch)
+                .toggleStyle(.ink)
             }
 
             Section("Projects") {
                 LabeledContent {
-                    Button("Open Recordings Library…") {
+                    SettingsButton("Open Library", systemImage: "square.grid.2x2") {
                         CaptureLibraryModel.shared.show(filter: .recordings)
                     }
                 } label: {
@@ -33,9 +33,6 @@ struct VideoSettingsPane: View {
                 }
             }
         }
-        .formStyle(.grouped)
-        .scrollContentBackground(.hidden)
-        .contentMargins(.top, 8, for: .scrollContent)
     }
 }
 
@@ -47,7 +44,7 @@ struct OverlaySettingsPane: View {
     private let autoCloseOptions: [Int] = [0, 5, 10, 30, 60]
 
     var body: some View {
-        Form {
+        SettingsPage {
             Section("Preview Overlay") {
                 Picker(selection: $previewPositionRaw) {
                     ForEach(PreviewOverlayPosition.allCases) { position in
@@ -77,7 +74,7 @@ struct OverlaySettingsPane: View {
                         detail: "Dismiss the preview once you drag it out to another app."
                     )
                 }
-                .toggleStyle(.switch)
+                .toggleStyle(.ink)
             }
 
             Section("Card Actions") {
@@ -86,8 +83,5 @@ struct OverlaySettingsPane: View {
                     .frame(maxWidth: .infinity)
             }
         }
-        .formStyle(.grouped)
-        .scrollContentBackground(.hidden)
-        .contentMargins(.top, 8, for: .scrollContent)
     }
 }

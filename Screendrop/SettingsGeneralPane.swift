@@ -31,36 +31,46 @@ struct GeneralSettingsPane: View {
         )
     }
 
-    var body: some View {
-        Form {
-            Section("Save Location") {
-                LabeledContent("Export folder") {
-                    HStack(spacing: 8) {
-                        Image(systemName: "folder.fill")
-                            .foregroundStyle(.blue)
-                            .font(.system(size: 14))
+    @Environment(SettingsPermissions.self) private var permissions
 
+    var body: some View {
+        SettingsPage {
+            Section("Permissions") {
+                ForEach(SettingsPermissions.Kind.allCases) { kind in
+                    SettingsPermissionRow(kind: kind, permissions: permissions)
+                }
+            }
+
+            Section("Save Location") {
+                HStack(spacing: 10) {
+                    Image(systemName: "folder.fill")
+                        .font(.system(size: 14))
+                        .foregroundStyle(Palette.secondaryLabel)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Export folder")
                         Text(ScreendropPreferences.exportDirectory.abbreviatedPath)
-                            .font(.system(size: 13))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                             .lineLimit(1)
                             .truncationMode(.middle)
-                            .foregroundStyle(.primary)
                             .help(ScreendropPreferences.exportDirectory.path)
                     }
-                }
 
-                HStack(spacing: 8) {
-                    Button("Choose Folder…") {
+                    Spacer(minLength: 8)
+
+                    if !exportDirectoryPath.isEmpty {
+                        InspectorResetButton(help: "Use the default folder") {
+                            exportDirectoryPath = ""
+                        }
+                        .transition(.blurPop)
+                    }
+
+                    SettingsButton("Change…") {
                         chooseExportDirectory()
                     }
-                    .controlSize(.small)
-
-                    Button("Use Default") {
-                        exportDirectoryPath = ""
-                    }
-                    .controlSize(.small)
-                    .disabled(exportDirectoryPath.isEmpty)
                 }
+                .motion(value: exportDirectoryPath.isEmpty)
 
                 Toggle(isOn: saveButtonUsesFolderBinding) {
                     SettingsControlLabel(
@@ -68,7 +78,7 @@ struct GeneralSettingsPane: View {
                         detail: "When you click Save, write straight to the export folder instead of asking where to put it."
                     )
                 }
-                .toggleStyle(.switch)
+                .toggleStyle(.ink)
             }
 
             Section("System") {
@@ -78,12 +88,12 @@ struct GeneralSettingsPane: View {
                         detail: "Start Screendrop automatically when you sign in."
                     )
                 }
-                .toggleStyle(.switch)
+                .toggleStyle(.ink)
 
                 if let launchAtLoginError {
                     Text(launchAtLoginError)
                         .font(.caption)
-                        .foregroundStyle(.red)
+                        .foregroundStyle(Palette.record)
                 } else if launchAtLoginStatus.requiresApproval {
                     Text("Approve Screendrop in System Settings → General → Login Items.")
                         .font(.caption)
@@ -96,7 +106,7 @@ struct GeneralSettingsPane: View {
                         detail: "Play the camera shutter sound when a screenshot is taken."
                     )
                 }
-                .toggleStyle(.switch)
+                .toggleStyle(.ink)
 
                 Toggle(isOn: $showMenuBarIcon) {
                     SettingsControlLabel(
@@ -104,7 +114,7 @@ struct GeneralSettingsPane: View {
                         detail: "When hidden, reopen Screendrop to get back to Settings."
                     )
                 }
-                .toggleStyle(.switch)
+                .toggleStyle(.ink)
             }
 
             Section("Capture Visibility") {
@@ -114,12 +124,9 @@ struct GeneralSettingsPane: View {
                         detail: "Show preview cards, recording controls, Settings, and other Screendrop windows in screenshots and screen recordings."
                     )
                 }
-                .toggleStyle(.switch)
+                .toggleStyle(.ink)
             }
         }
-        .formStyle(.grouped)
-        .scrollContentBackground(.hidden)
-        .contentMargins(.top, 8, for: .scrollContent)
         .onAppear {
             refreshLaunchAtLoginStatus()
         }

@@ -37,7 +37,7 @@ private struct AfterCaptureToggleRow: View {
         Toggle(isOn: $isOn) {
             SettingsControlLabel(title, detail: subtitle)
         }
-        .toggleStyle(.switch)
+        .toggleStyle(.ink)
         .disabled(action == .upload && !isOn && !CloudCredentialStore.shared.isConfigured)
 
         if action == .upload && !CloudCredentialStore.shared.isConfigured {
@@ -47,8 +47,7 @@ private struct AfterCaptureToggleRow: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Spacer()
-                Button("Set Up Cloud…") { SettingsWindowController.show(tab: .cloud) }
-                    .controlSize(.small)
+                SettingsButton("Set Up Cloud…") { SettingsWindowController.show(tab: .cloud) }
             }
         }
     }

@@ -24,27 +24,46 @@ struct SettingsAboutPane: View {
     }
 
     var body: some View {
-        Form {
+        SettingsPage {
             Section {
-                HStack(alignment: .center, spacing: 16) {
+                VStack(spacing: Space.l) {
                     Image(nsImage: NSApp.applicationIconImage)
                         .resizable()
                         .aspectRatio(contentMode: .fit)
-                        .frame(width: 72, height: 72)
+                        .frame(width: 96, height: 96)
+                        .shadow(color: .black.opacity(0.18), radius: 12, y: 6)
 
-                    VStack(alignment: .leading, spacing: 6) {
+                    VStack(spacing: Space.s) {
                         Text("Screendrop")
-                            .font(.largeTitle.bold())
-
-                        Text(versionText)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-
-                        Text("A native screenshot and recording tool for macOS.")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
+                            .font(.dsDisplay)
+                        Tag(text: versionText)
                     }
+
+                    Text("Screenshots and screen recordings, made beautiful in a click.")
+                        .font(.dsCallout)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+
+                    GlassEffectContainer(spacing: GlassMetrics.containerSpacing) {
+                        HStack(spacing: GlassMetrics.gap) {
+                            SettingsButton("Check for Updates", systemImage: "arrow.down.circle", isProminent: true) {
+                                updaterManager.checkForUpdates()
+                            }
+                            .disabled(!updaterManager.canCheckForUpdates)
+
+                            SettingsButton("GitHub", systemImage: "chevron.left.forwardslash.chevron.right") {
+                                open("https://github.com/fayazara/screendrop")
+                            }
+
+                            SettingsButton("@fayazara", systemImage: "at") {
+                                open("https://x.com/fayazara")
+                            }
+                        }
+                    }
+                    .padding(.top, Space.xs)
                 }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, Space.xxl)
             }
 
             Section("Updates") {
@@ -52,33 +71,25 @@ struct SettingsAboutPane: View {
                     get: { updaterManager.automaticallyChecksForUpdates },
                     set: { updaterManager.automaticallyChecksForUpdates = $0 }
                 )) {
-                    Text("Automatically check for updates")
+                    SettingsControlLabel(
+                        "Check for updates automatically",
+                        detail: "Screendrop looks for a new version in the background and asks before installing it."
+                    )
                 }
-
-                Button("Check for Updates...") {
-                    updaterManager.checkForUpdates()
-                }
-                .disabled(!updaterManager.canCheckForUpdates)
+                .toggleStyle(.ink)
             }
 
-            Section("Project") {
-                Text("Screendrop is a lightweight opensource app for capturing screenshots and screen recordings on macOS.")
+            Section {
+                Text("Screendrop is open source and built by Fayaz Ahmed. Issues, ideas and pull requests are welcome on GitHub.")
+                    .font(.callout)
                     .foregroundStyle(.secondary)
-
-                Link("GitHub", destination: URL(string: "https://github.com/fayazara/screendrop")!)
-            }
-
-            Section("Credits") {
-                Text("Built by Fayaz Ahmed")
-                    .foregroundStyle(.secondary)
-
-                Link("GitHub", destination: URL(string: "https://github.com/fayazara")!)
-
-                Link("Follow on Twitter", destination: URL(string: "https://x.com/fayazara")!)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .formStyle(.grouped)
-        .scrollContentBackground(.hidden)
-        .contentMargins(.top, 8, for: .scrollContent)
+    }
+
+    private func open(_ string: String) {
+        guard let url = URL(string: string) else { return }
+        NSWorkspace.shared.open(url)
     }
 }

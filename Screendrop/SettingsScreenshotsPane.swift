@@ -27,7 +27,7 @@ struct ScreenshotsSettingsPane: View {
     }
 
     var body: some View {
-        Form {
+        SettingsPage {
             CaptureHotkeySettingsSection(actions: [.fullscreen, .window, .area, .textCapture])
 
             Section("Capture") {
@@ -48,7 +48,7 @@ struct ScreenshotsSettingsPane: View {
                         detail: "Include the window's drop shadow when capturing a window."
                     )
                 }
-                .toggleStyle(.switch)
+                .toggleStyle(.ink)
 
                 Toggle(isOn: $trimFullscreenMenuBar) {
                     SettingsControlLabel(
@@ -56,7 +56,7 @@ struct ScreenshotsSettingsPane: View {
                         detail: "On notched Macs, removes the empty black bar at the top of a fullscreen capture. A visible menu bar is kept."
                     )
                 }
-                .toggleStyle(.switch)
+                .toggleStyle(.ink)
             }
 
             Section("Annotation Editor") {
@@ -66,7 +66,7 @@ struct ScreenshotsSettingsPane: View {
                         detail: "Shows a downscaled image while editing to reduce memory use. Saved and exported screenshots are always full resolution."
                     )
                 }
-                .toggleStyle(.switch)
+                .toggleStyle(.ink)
             }
 
             AfterCaptureActionsSection(type: .screenshot, title: "After Capture")
@@ -102,8 +102,5 @@ struct ScreenshotsSettingsPane: View {
                 }
             }
         }
-        .formStyle(.grouped)
-        .scrollContentBackground(.hidden)
-        .contentMargins(.top, 8, for: .scrollContent)
     }
 }

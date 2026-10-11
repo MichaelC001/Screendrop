@@ -19,33 +19,48 @@ struct CaptureHotkeySettingsSection: View {
             ForEach(actions) { action in
                 LabeledContent(action.title) {
                     HStack(spacing: 8) {
-                        HotkeyShortcutDisplay(shortcut: shortcut(for: action))
+                        if shortcut(for: action) != action.defaultShortcut, !isRecording(action) {
+                            InspectorResetButton(help: "Restore the default shortcut") {
+                                resetShortcut(for: action)
+                            }
+                            .transition(.blurPop)
+                        }
 
-                        Button(isRecording(action) ? "Press keys..." : "Record") {
+                        ZStack {
+                            if isRecording(action) {
+                                Text("Press keys…")
+                                    .font(.system(size: 11.5, weight: .medium))
+                                    .foregroundStyle(.secondary)
+                                    .phaseAnimator([1.0, 0.45]) { content, opacity in
+                                        content.opacity(opacity)
+                                    } animation: { _ in .easeInOut(duration: 0.7) }
+                                    .transition(.blurPop)
+                            } else {
+                                KeyCaps(tokens: shortcut(for: action).displayTokens)
+                                    .transition(.blurPop)
+                            }
+                        }
+
+                        SettingsButton(isRecording(action) ? "Cancel" : "Record") {
                             toggleRecording(for: action)
                         }
-                        .controlSize(.small)
-
-                        Button("Reset") {
-                            resetShortcut(for: action)
-                        }
-                        .controlSize(.small)
-                        .disabled(shortcut(for: action) == action.defaultShortcut)
                     }
+                    .motion(.morphQuick, value: isRecording(action))
+                    .motion(.morphQuick, value: shortcut(for: action))
                 }
             }
 
             if let errorMessage {
                 Text(errorMessage)
                     .font(.caption)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(Palette.record)
             }
 
             ForEach(actions) { action in
                 if let failure = HotkeyManager.shared.registrationErrors[action] {
                     Text("\(action.title): \(failure)")
                         .font(.caption)
-                        .foregroundStyle(.red)
+                        .foregroundStyle(Palette.record)
                 }
             }
 
@@ -123,36 +138,5 @@ struct CaptureHotkeySettingsSection: View {
 
     private func reloadShortcuts() {
         shortcuts = CaptureHotkeyPreferences.shortcuts()
-    }
-}
-
-private struct HotkeyShortcutDisplay: View {
-    let shortcut: HotkeyShortcut
-
-    var body: some View {
-        HStack(spacing: 3) {
-            ForEach(shortcut.displayTokens, id: \.self) { token in
-                HotkeyKeyCap(token: token)
-            }
-        }
-        .accessibilityLabel(shortcut.displayString)
-    }
-}
-
-private struct HotkeyKeyCap: View {
-    let token: String
-
-    var body: some View {
-        Text(token)
-            .font(.system(size: 11, weight: .semibold))
-            .foregroundStyle(.primary)
-            .monospacedDigit()
-            .frame(minWidth: 22, minHeight: 21)
-            .padding(.horizontal, token.count > 1 ? 6 : 0)
-            .background(.quaternary, in: RoundedRectangle(cornerRadius: 5, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 5, style: .continuous)
-                    .strokeBorder(.separator.opacity(0.35))
-            }
     }
 }
