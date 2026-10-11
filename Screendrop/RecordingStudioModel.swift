@@ -81,6 +81,20 @@ final class RecordingStudioModel {
             scheduleProjectSave()
         }
     }
+    /// A background shown in the preview while the pointer rests on it in
+    /// the picker. Never saved or exported; picking it writes `style`.
+    var previewBackground: AnnotationBackgroundStyle?
+
+    /// Shows or clears a hovered background. Leaving one fill can arrive
+    /// after entering the next, so only the fill being left is cleared.
+    func previewBackground(_ background: AnnotationBackgroundStyle, isHovering: Bool) {
+        if isHovering {
+            previewBackground = background
+        } else if previewBackground == background {
+            previewBackground = nil
+        }
+    }
+
     /// The style preset currently applied, so the Studio's preset bar can
     /// show its name and detect whether the user has since edited away from
     /// it. Not persisted in the project file: reapplied by content match.

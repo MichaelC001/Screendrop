@@ -456,7 +456,7 @@ private struct StudioCanvasComposition: View {
                 : model.previewViewportFrame(at: model.displayTime)
 
             ZStack {
-                StudioBackgroundView(style: model.style.background)
+                StudioBackgroundView(style: model.previewBackground ?? model.style.background)
                     .frame(width: canvasSize.width, height: canvasSize.height)
                     .clipped()
 
@@ -504,7 +504,7 @@ private struct StudioCanvasComposition: View {
                         }
                     }
                     .shadow(
-                        color: .black.opacity(model.style.background == .none ? 0 : 0.55 * model.style.shadow),
+                        color: .black.opacity((model.previewBackground ?? model.style.background) == .none ? 0 : 0.55 * model.style.shadow),
                         radius: min(canvasSize.width, canvasSize.height) * 0.045 * model.style.shadow,
                         y: min(canvasSize.width, canvasSize.height) * 0.016 * model.style.shadow
                     )

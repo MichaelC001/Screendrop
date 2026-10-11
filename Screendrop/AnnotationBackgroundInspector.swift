@@ -140,6 +140,9 @@ struct InspectorBackgroundFillPicker: View {
     var onSelectWallpaper: (AnnotationCustomWallpaper) -> Void = { _ in }
     /// Shows every library at once instead of switching between them.
     var stacked = false
+    /// Called as the pointer enters (true) and leaves (false) a fill, so a
+    /// host can show it before it is picked.
+    var onPreview: ((AnnotationBackgroundStyle, Bool) -> Void)? = nil
 
     private let swatchColumns = Array(repeating: GridItem(.flexible(), spacing: 6), count: 8)
     /// Five recents plus the add tile fill two rows of the shared
@@ -217,6 +220,7 @@ struct InspectorBackgroundFillPicker: View {
                     } content: {
                         Rectangle().fill(color.color)
                     }
+                    .onHover { onPreview?(.solid(color), $0) }
                 }
                 InspectorCustomBackgroundColorTile(style: $style, onSelect: onEditorAction)
             }
@@ -234,6 +238,7 @@ struct InspectorBackgroundFillPicker: View {
                             endPoint: gradient.endPoint
                         ))
                     }
+                    .onHover { onPreview?(.gradient(gradient), $0) }
                 }
             }
 
@@ -410,6 +415,7 @@ struct InspectorBackgroundFillPicker: View {
             } content: {
                 AnnotationCustomWallpaperPreview(wallpaper: wallpaper)
             }
+            .onHover { onPreview?(.customWallpaper(wallpaper), $0) }
         }
     }
 

@@ -2,11 +2,12 @@
 //  RecordingStudioInspector.swift
 //  Screendrop
 //
-//  The Studio inspector: every setting in one scrolling list of open
-//  sections, each feature's on/off switch in its header so a switched-off
-//  feature folds down to a single line. Style presets stay pinned above the
-//  list and Export/Share below it. Selecting a zoom or clip on the timeline
-//  adds that selection's controls as a tinted card at the top of the list.
+//  The Studio inspector shows one thing at a time. With nothing chosen it
+//  is the Look: saved styles, the canvas shape, the frame around the video,
+//  the list of features and the sound - short enough to fit one screen.
+//  A feature's row opens its own page, and clicking a zoom on the timeline
+//  opens that zoom's page; a back link returns to the Look. Pages swap in
+//  place with no transition. Export and Share stay pinned below every page.
 //
 
 import AppKit
@@ -28,10 +29,47 @@ private enum StudioTranscriptTab: Hashable {
     case edit
 }
 
-/// The timeline selection the inspector is editing, if any.
-private enum StudioInspectorSelection: Hashable {
+/// A feature's own page, opened from its row on the Look.
+private enum StudioInspectorPage: Hashable {
+    case camera
+    case zoom
+    case cursor
+    case captions
+    case keystrokes
+    case speedBadge
+    case clip
+
+    var title: String {
+        switch self {
+        case .camera: "Camera"
+        case .zoom: "Zoom"
+        case .cursor: "Cursor"
+        case .captions: "Captions"
+        case .keystrokes: "Keystrokes"
+        case .speedBadge: "Speed Badge"
+        case .clip: "Clip"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .camera: "person.crop.square"
+        case .zoom: "plus.magnifyingglass"
+        case .cursor: "cursorarrow"
+        case .captions: "captions.bubble"
+        case .keystrokes: "command"
+        case .speedBadge: "forward"
+        case .clip: "film"
+        }
+    }
+}
+
+/// What the inspector is showing, so the scroll position starts over when
+/// it changes.
+private enum StudioInspectorContent: Hashable {
+    case look
+    case page(StudioInspectorPage)
     case zoom(UUID)
-    case clip(UUID)
 }
 
 struct StudioInspector: View {
@@ -40,47 +78,44 @@ struct StudioInspector: View {
     @State private var stylePresetStore = RecordingStudioStylePresetStore.shared
     @State private var transcriptTab: StudioTranscriptTab = .captions
     @State private var isAudioExportOptionsPresented = false
+    @State private var page: StudioInspectorPage?
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView(.vertical) {
-                VStack(alignment: .leading, spacing: 0) {
-                    Color.clear
-                        .frame(height: 0)
-                        .id(Self.topID)
-
-                    selectionSection
-                    sections
-                }
-                .frame(maxWidth: .infinity, alignment: .topLeading)
-                .padding(.bottom, 12)
-            }
-            .onChange(of: selection) { _, selection in
-                // Clicking a zoom lands its controls at the top of the list;
-                // bring them into view if the list was scrolled away. Clip
-                // selection rides along with every scrub of the clip lane,
-                // so it never moves the list.
-                guard case .zoom = selection else { return }
-                withAnimation(.morphIfAllowed) {
-                    proxy.scrollTo(Self.topID, anchor: .top)
+        ScrollView(.vertical) {
+            VStack(alignment: .leading, spacing: 0) {
+                switch content {
+                case .look:
+                    lookPage
+                case .page(let page):
+                    featurePage(page)
+                case .zoom:
+                    if let cue = model.selectedCue {
+                        selectedZoomPage(for: cue)
+                    }
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .padding(.bottom, 12)
         }
+        // Each page opens at its top.
+        .id(content)
         .scrollContentBackground(.hidden)
         .scrollEdgeEffectSoftIfAvailable()
-        .safeAreaInset(edge: .top, spacing: 0) {
-            RecordingStudioStylePresetBar(model: model, presetStore: stylePresetStore)
-                .background(sidebarBackground)
-        }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            // Backed like the preset bar above, so the list never shows
-            // through the buttons as it scrolls.
+            // Backed like the panel, so the list never shows through the
+            // buttons as it scrolls.
             StudioActionFooter(model: model)
                 .background(sidebarBackground)
         }
         .background(sidebarBackground)
-        .motion(.morph, value: selection)
+        .onChange(of: availablePages) { _, available in
+            // A page whose feature went away (its only sped-up clip was
+            // reset, say) folds back to the Look.
+            if let page, !available.contains(page) {
+                self.page = nil
+            }
+        }
         .inspectorColumnWidth(
             min: InspectorMetrics.columnMinWidth,
             ideal: InspectorMetrics.columnIdealWidth,
@@ -97,57 +132,46 @@ struct StudioInspector: View {
         }
     }
 
-    private static let topID = "studioInspector.top"
-
-    private var selection: StudioInspectorSelection? {
+    /// A selected zoom wins: clicking one is always a request to edit it.
+    /// Clips are not here on purpose - the clip lane selects whatever clip
+    /// it is scrubbed over, so following it would flip the panel on every
+    /// scrub. The selected clip opens from its row instead.
+    private var content: StudioInspectorContent {
         if let cue = model.selectedCue { return .zoom(cue.id) }
-        if let clip = model.selectedClip { return .clip(clip.id) }
-        return nil
+        if let page, availablePages.contains(page) { return .page(page) }
+        return .look
     }
 
-    // MARK: List
-
-    /// Timeline selections edit at the top, where attention lands after
-    /// clicking a zoom or clip. They are ordinary sections - same controls,
-    /// same surface - marked only by an accent glyph in the title and set
-    /// apart from the recording-wide settings by a group's worth of space.
-    @ViewBuilder
-    private var selectionSection: some View {
-        if let cue = model.selectedCue {
-            VStack(spacing: 0) {
-                selectedZoomSection(for: cue)
-                InspectorGroupBreak()
-            }
-            .id(selection)
-            .transition(AnyTransition(.blurReplace).combined(with: .move(edge: .top)).combined(with: .opacity))
-        } else if let clip = model.selectedClip {
-            VStack(spacing: 0) {
-                selectedClipSection(for: clip)
-                InspectorGroupBreak()
-            }
-            .id(selection)
-            .transition(AnyTransition(.blurReplace).combined(with: .move(edge: .top)).combined(with: .opacity))
-        }
+    private var availablePages: Set<StudioInspectorPage> {
+        var pages: Set<StudioInspectorPage> = [.zoom]
+        if model.hasCameraVideo { pages.insert(.camera) }
+        if model.pointerIsSynthesized { pages.insert(.cursor) }
+        if model.canTranscribe || model.hasSubtitles { pages.insert(.captions) }
+        if model.hasKeystrokes { pages.insert(.keystrokes) }
+        if model.hasSpedUpClips { pages.insert(.speedBadge) }
+        if model.selectedClip != nil { pages.insert(.clip) }
+        return pages
     }
 
-    /// Settings run outside-in, in four groups split by extra space: how the
-    /// frame looks (canvas, background, the video card, the camera on it),
-    /// how it moves (zooms, pointer), what is written over it (captions,
-    /// keystrokes), and what is heard.
+    private func open(_ page: StudioInspectorPage) {
+        self.page = page
+    }
+
+    // MARK: Look
+
     @ViewBuilder
-    private var sections: some View {
-        // Look
+    private var lookPage: some View {
+        RecordingStudioStyleStrip(model: model, presetStore: stylePresetStore)
+
         InspectorSection("Canvas") {
             canvasControls
         }
-
-        backgroundSection
 
         InspectorSection(
             "Frame",
             accessory: {
                 if !usesDefaultLayout {
-                    InspectorResetButton(help: "Reset frame") {
+                    InspectorResetButton(help: "Reset padding, corners and shadow") {
                         withAnimation(.morphIfAllowed) {
                             model.style.padding = 0.06
                             model.style.cornerRadius = 0.02
@@ -158,119 +182,309 @@ struct StudioInspector: View {
                 }
             }
         ) {
-            frameControls
-        }
-
-        if model.hasCameraVideo {
-            InspectorSection("Camera", isOn: $model.style.camera.isVisible, toggleTitle: "Show camera") {
-                cameraControls
+            VStack(alignment: .leading, spacing: InspectorMetrics.rowSpacing) {
+                StudioBackgroundRow(
+                    model: model,
+                    wallpaperStore: wallpaperStore,
+                    onPickWallpaper: pickWallpaper
+                )
+                frameControls
             }
         }
 
-        // Motion
-        InspectorGroupBreak()
-
-        InspectorSection("Zoom", isOn: $model.zoomEnabled, toggleTitle: "Enable zooms") {
-            zoomControls
+        InspectorSection("Video") {
+            featureList
         }
-
-        if model.pointerIsSynthesized {
-            InspectorSection(
-                "Cursor",
-                isOn: Binding(
-                    get: { !model.style.hidesCursor },
-                    set: { model.style.hidesCursor = !$0 }
-                ),
-                toggleTitle: "Show mouse pointer",
-                accessory: {
-                    if model.style.cursorScale != RecordingStudioStyle.defaultCursorScale,
-                       !model.style.hidesCursor {
-                        InspectorResetButton(help: "Reset cursor size") {
-                            withAnimation(.morphIfAllowed) {
-                                model.style.cursorScale = RecordingStudioStyle.defaultCursorScale
-                            }
-                        }
-                        .transition(.blurPop)
-                    }
-                }
-            ) {
-                cursorControls
-            }
-        }
-
-        // Text
-        if model.canTranscribe || model.hasSubtitles || model.hasKeystrokes || model.hasSpedUpClips {
-            InspectorGroupBreak()
-        }
-
-        if model.canTranscribe || model.hasSubtitles {
-            captionsSection
-        }
-
-        if model.hasKeystrokes {
-            InspectorSection("Keystrokes", isOn: $model.showsKeystrokes, toggleTitle: "Show keystrokes") {
-                keystrokeControls
-            }
-        }
-
-        // Only offered once some clip actually plays faster than recorded.
-        if model.hasSpedUpClips {
-            InspectorSection("Speed Badge", isOn: $model.showsSpeedBadge, toggleTitle: "Show speed badge") {
-                speedBadgeControls
-            }
-            .transition(AnyTransition(.blurReplace).combined(with: .opacity))
-        }
-
-        // Sound
-        InspectorGroupBreak()
 
         audioSection
     }
 
-    private var backgroundSection: some View {
-        InspectorSection(
-            "Background",
-            accessory: {
-                if model.style.background != .none {
-                    InspectorClearButton(help: "Remove background") {
-                        withAnimation(.morphQuickIfAllowed) {
-                            model.style.background = .none
-                        }
-                    }
-                    .transition(.blurPop)
-                }
+    /// Everything drawn over or done to the video, one row each.
+    private var featureList: some View {
+        StudioFeatureList {
+            if model.hasCameraVideo {
+                StudioFeatureRow(
+                    title: "Camera",
+                    systemImage: StudioInspectorPage.camera.systemImage,
+                    summary: cameraSummary,
+                    isOn: $model.style.camera.isVisible
+                ) { open(.camera) }
             }
-        ) {
-            InspectorBackgroundFillPicker(
-                style: $model.style.background,
-                rememberedWallpaper: nil,
-                wallpaperStore: wallpaperStore,
-                onEditorAction: {},
-                onPickWallpaper: pickWallpaper,
-                stacked: true
-            )
+
+            StudioFeatureRow(
+                title: "Zoom",
+                systemImage: StudioInspectorPage.zoom.systemImage,
+                summary: zoomSummary,
+                isOn: $model.zoomEnabled
+            ) { open(.zoom) }
+
+            if model.pointerIsSynthesized {
+                StudioFeatureRow(
+                    title: "Cursor",
+                    systemImage: StudioInspectorPage.cursor.systemImage,
+                    summary: String(format: "%.1f×", model.style.cursorScale),
+                    isOn: Binding(
+                        get: { !model.style.hidesCursor },
+                        set: { model.style.hidesCursor = !$0 }
+                    )
+                ) { open(.cursor) }
+            }
+
+            if model.canTranscribe || model.hasSubtitles {
+                StudioFeatureRow(
+                    title: "Captions",
+                    systemImage: StudioInspectorPage.captions.systemImage,
+                    summary: captionsSummary,
+                    isOn: captionsToggle
+                ) { open(.captions) }
+            }
+
+            if model.hasKeystrokes {
+                StudioFeatureRow(
+                    title: "Keystrokes",
+                    systemImage: StudioInspectorPage.keystrokes.systemImage,
+                    summary: model.keystrokePlacement.title,
+                    isOn: $model.showsKeystrokes
+                ) { open(.keystrokes) }
+            }
+
+            if model.hasSpedUpClips {
+                StudioFeatureRow(
+                    title: "Speed Badge",
+                    systemImage: StudioInspectorPage.speedBadge.systemImage,
+                    summary: model.speedBadgePlacement.title,
+                    isOn: $model.showsSpeedBadge
+                ) { open(.speedBadge) }
+            }
+
+            if let clip = model.selectedClip {
+                StudioFeatureRow(
+                    title: "Clip",
+                    systemImage: StudioInspectorPage.clip.systemImage,
+                    summary: clipSummary(for: clip)
+                ) { open(.clip) }
+            }
         }
     }
 
-    @ViewBuilder
-    private var captionsSection: some View {
-        if model.hasSubtitles, case .idle = model.transcriptionState {
-            InspectorSection("Captions", isOn: $model.showsSubtitles, toggleTitle: "Show subtitles") {
-                transcriptionControls
+    private var cameraSummary: String {
+        let center = model.style.camera.center
+        let vertical = center.y < 0.34 ? "Top" : center.y > 0.66 ? "Bottom" : "Middle"
+        let horizontal = center.x < 0.34 ? "left" : center.x > 0.66 ? "right" : "center"
+        return vertical == "Middle" && horizontal == "center" ? "Center" : "\(vertical) \(horizontal)"
+    }
+
+    private var zoomSummary: String {
+        switch model.zoomCues.count {
+        case 0: "None yet"
+        case 1: "1 zoom"
+        case let count: "\(count) zooms"
+        }
+    }
+
+    private var captionsSummary: String? {
+        switch model.transcriptionState {
+        case .transcribing: return "Transcribing…"
+        case .failed: return "Failed"
+        case .idle:
+            return model.hasSubtitles
+                ? "\(model.subtitleCues.count) line\(model.subtitleCues.count == 1 ? "" : "s")"
+                : "Transcribe"
+        }
+    }
+
+    /// Captions have a switch only once there is something to show.
+    private var captionsToggle: Binding<Bool>? {
+        guard model.hasSubtitles, case .idle = model.transcriptionState else { return nil }
+        return $model.showsSubtitles
+    }
+
+    private func clipSummary(for clip: RecordingClipSegment) -> String {
+        let segments = model.clipTimeline.segments
+        let speed = RecordingClipSegment.speedTitle(clip.speed)
+        guard segments.count > 1,
+              let index = segments.firstIndex(where: { $0.id == clip.id }) else {
+            return speed
+        }
+        return "\(index + 1) of \(segments.count) · \(speed)"
+    }
+
+    // MARK: Pages
+
+    /// The top of every page: a way back, the page's title, and its switch.
+    private func pageHeader<Accessory: View>(
+        _ title: String,
+        systemImage: String,
+        backTitle: String = "Look",
+        isOn: Binding<Bool>? = nil,
+        toggleTitle: String = "",
+        onBack: @escaping () -> Void,
+        @ViewBuilder accessory: () -> Accessory = { EmptyView() }
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 4) {
+                Button(action: onBack) {
+                    HStack(spacing: 3) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 10, weight: .semibold))
+                        Text(backTitle)
+                            .font(.inspectorValue)
+                    }
+                    .foregroundStyle(Palette.secondaryLabel)
+                    .frame(height: 24)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Back to \(backTitle)")
+                // Escape belongs to the crop bar while cropping.
+                .keyboardShortcut(model.isCroppingVideo ? nil : .cancelAction)
+
+                Spacer(minLength: 0)
+
+                accessory()
             }
-        } else {
-            InspectorSection(
-                "Captions",
-                accessory: {
-                    if model.transcriptionState.isTranscribing {
-                        ProgressView()
-                            .controlSize(.mini)
-                            .frame(width: 24, height: 24)
-                            .transition(.blurPop)
+
+            HStack(spacing: 8) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Palette.label)
+                Text(title)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Palette.label)
+                Spacer(minLength: 0)
+                if let isOn {
+                    InspectorToggle(
+                        toggleTitle.isEmpty ? title : toggleTitle,
+                        isOn: Binding(
+                            get: { isOn.wrappedValue },
+                            set: { value in
+                                withAnimation(.morphIfAllowed) { isOn.wrappedValue = value }
+                            }
+                        ),
+                        size: .regular
+                    )
+                }
+            }
+        }
+        .padding(.horizontal, InspectorMetrics.horizontalPadding)
+        .padding(.top, 10)
+        .padding(.bottom, 4)
+    }
+
+    /// A page's controls. A feature that is switched off keeps its controls
+    /// on show, dimmed, so the page still says what turning it on would do.
+    private func pageBody<Content: View>(
+        isActive: Bool = true,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        content()
+            .padding(.horizontal, InspectorMetrics.horizontalPadding)
+            .padding(.top, InspectorMetrics.headerSpacing)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .disabled(!isActive)
+            .opacity(isActive ? 1 : 0.45)
+    }
+
+    private func backToLook() {
+        page = nil
+    }
+
+    @ViewBuilder
+    private func featurePage(_ page: StudioInspectorPage) -> some View {
+        switch page {
+        case .camera:
+            pageHeader(
+                page.title,
+                systemImage: page.systemImage,
+                isOn: $model.style.camera.isVisible,
+                toggleTitle: "Show camera",
+                onBack: backToLook
+            )
+            pageBody(isActive: model.style.camera.isVisible) {
+                cameraControls
+            }
+
+        case .zoom:
+            pageHeader(
+                page.title,
+                systemImage: page.systemImage,
+                isOn: $model.zoomEnabled,
+                toggleTitle: "Enable zooms",
+                onBack: backToLook
+            )
+            pageBody(isActive: model.zoomEnabled) {
+                zoomControls
+            }
+
+        case .cursor:
+            let isShown = Binding(
+                get: { !model.style.hidesCursor },
+                set: { model.style.hidesCursor = !$0 }
+            )
+            pageHeader(
+                page.title,
+                systemImage: page.systemImage,
+                isOn: isShown,
+                toggleTitle: "Show mouse pointer",
+                onBack: backToLook
+            ) {
+                if model.style.cursorScale != RecordingStudioStyle.defaultCursorScale {
+                    InspectorResetButton(help: "Reset cursor size") {
+                        withAnimation(.morphIfAllowed) {
+                            model.style.cursorScale = RecordingStudioStyle.defaultCursorScale
+                        }
                     }
                 }
+            }
+            pageBody(isActive: !model.style.hidesCursor) {
+                cursorControls
+            }
+
+        case .captions:
+            pageHeader(
+                page.title,
+                systemImage: page.systemImage,
+                isOn: captionsToggle,
+                toggleTitle: "Show subtitles",
+                onBack: backToLook
             ) {
+                if model.transcriptionState.isTranscribing {
+                    ProgressView()
+                        .controlSize(.mini)
+                        .frame(width: 24, height: 24)
+                }
+            }
+            pageBody(isActive: captionsToggle?.wrappedValue ?? true) {
                 transcriptionControls
+            }
+
+        case .keystrokes:
+            pageHeader(
+                page.title,
+                systemImage: page.systemImage,
+                isOn: $model.showsKeystrokes,
+                toggleTitle: "Show keystrokes",
+                onBack: backToLook
+            )
+            pageBody(isActive: model.showsKeystrokes) {
+                keystrokeControls
+            }
+
+        case .speedBadge:
+            pageHeader(
+                page.title,
+                systemImage: page.systemImage,
+                isOn: $model.showsSpeedBadge,
+                toggleTitle: "Show speed badge",
+                onBack: backToLook
+            )
+            pageBody(isActive: model.showsSpeedBadge) {
+                speedBadgeControls
+            }
+
+        case .clip:
+            if let clip = model.selectedClip {
+                selectedClipPage(for: clip)
             }
         }
     }
@@ -454,49 +668,49 @@ struct StudioInspector: View {
 
     // MARK: Selection
 
-    /// The selected zoom's controls as one section at the top of the list.
-    /// Its switch turns this zoom on or off; the close button lets go of the
-    /// selection.
-    private func selectedZoomSection(for selected: ZoomCue) -> some View {
-        InspectorSection(
-            title: "Selected Zoom",
-            symbol: selected.anchorMode == .pinnedAnchor ? "scope" : "plus.magnifyingglass",
-            accessory: {
-                InspectorIconButton(systemName: "trash", help: "Remove Zoom") {
-                    withAnimation(.morphIfAllowed) { model.removeZoomCue(id: selected.id) }
+    /// A zoom clicked on the timeline. Its switch turns just this zoom on or
+    /// off; going back lets go of the selection and returns to wherever the
+    /// panel was, the Zoom page included.
+    @ViewBuilder
+    private func selectedZoomPage(for selected: ZoomCue) -> some View {
+        pageHeader(
+            "Zoom",
+            systemImage: selected.anchorMode == .pinnedAnchor ? "scope" : "plus.magnifyingglass",
+            backTitle: page?.title ?? "Look",
+            isOn: Binding(
+                get: { selected.isEnabled },
+                set: { isEnabled in
+                    var updated = selected
+                    updated.isEnabled = isEnabled
+                    model.updateZoomCue(updated)
                 }
-                selectionCloseButton
+            ),
+            toggleTitle: "Use this zoom",
+            onBack: {
+                model.selectedCueID = nil
             }
         ) {
-            VStack(alignment: .leading, spacing: InspectorMetrics.groupSpacing) {
-                InspectorToggleRow(
-                    "Use this zoom",
-                    isOn: Binding(
-                        get: { selected.isEnabled },
-                        set: { isEnabled in
-                            var updated = selected
-                            updated.isEnabled = isEnabled
-                            withAnimation(.morphIfAllowed) { model.updateZoomCue(updated) }
-                        }
-                    )
-                )
+            InspectorIconButton(systemName: "trash", help: "Remove Zoom") {
+                withAnimation(.morphIfAllowed) { model.removeZoomCue(id: selected.id) }
+            }
+        }
 
-                if !model.zoomEnabled {
-                    HStack(spacing: InspectorMetrics.rowSpacing) {
-                        InspectorHint("Zooms are off for this recording.")
-                        Spacer(minLength: 0)
-                        Button("Turn On") {
-                            withAnimation(.morphIfAllowed) { model.zoomEnabled = true }
-                        }
-                        .buttonStyle(.plain)
-                        .font(.inspectorValue)
-                        .foregroundStyle(Palette.highlight)
+        if !model.zoomEnabled {
+            pageBody {
+                HStack(spacing: InspectorMetrics.rowSpacing) {
+                    InspectorHint("Zooms are off for this recording.")
+                    Spacer(minLength: 0)
+                    Button("Turn On") {
+                        withAnimation(.morphIfAllowed) { model.zoomEnabled = true }
                     }
-                    .transition(AnyTransition(.blurReplace))
-                } else if selected.isEnabled {
-                    selectedZoomControls(for: selected)
-                        .transition(AnyTransition(.blurReplace).combined(with: .opacity))
+                    .buttonStyle(.plain)
+                    .font(.inspectorValue)
+                    .foregroundStyle(Palette.label)
                 }
+            }
+        } else {
+            pageBody(isActive: selected.isEnabled) {
+                selectedZoomControls(for: selected)
             }
         }
     }
@@ -603,19 +817,22 @@ struct StudioInspector: View {
         return "\(x), \(y)"
     }
 
-    private func selectedClipSection(for clip: RecordingClipSegment) -> some View {
-        InspectorSection(
-            title: "Selected Clip",
-            symbol: "film",
-            accessory: {
-                if model.canDeleteSelectedClip {
-                    InspectorIconButton(systemName: "trash", help: "Delete Clip") {
-                        withAnimation(.morphIfAllowed) { model.deleteSelectedClip() }
-                    }
-                }
-                selectionCloseButton
-            }
+    /// The clip under the playhead: its speed, and deleting it.
+    @ViewBuilder
+    private func selectedClipPage(for clip: RecordingClipSegment) -> some View {
+        pageHeader(
+            "Clip",
+            systemImage: StudioInspectorPage.clip.systemImage,
+            onBack: backToLook
         ) {
+            if model.canDeleteSelectedClip {
+                InspectorIconButton(systemName: "trash", help: "Delete Clip") {
+                    withAnimation(.morphIfAllowed) { model.deleteSelectedClip() }
+                }
+            }
+        }
+
+        pageBody {
             VStack(alignment: .leading, spacing: InspectorMetrics.groupLabelSpacing) {
                 InspectorGroupLabel("Speed")
 
@@ -641,22 +858,10 @@ struct StudioInspector: View {
                         )
                     )
                     .padding(.top, InspectorMetrics.rowSpacing - InspectorMetrics.groupLabelSpacing)
-                    .help("Applies to every sped-up clip; set its position under Speed Badge")
-                    .transition(AnyTransition(.blurReplace).combined(with: .opacity))
+                    .help("Applies to every sped-up clip; place it on the Speed Badge page")
                 }
             }
         }
-    }
-
-    private var selectionCloseButton: some View {
-        InspectorClearButton(help: "Done Editing Selection") {
-            withAnimation(.morphIfAllowed) {
-                model.selectedCueID = nil
-                model.selectedClipID = nil
-            }
-        }
-        // Escape belongs to the crop bar while cropping.
-        .keyboardShortcut(model.isCroppingVideo ? nil : .cancelAction)
     }
 
     // MARK: Text
