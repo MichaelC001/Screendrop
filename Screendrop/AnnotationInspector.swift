@@ -44,9 +44,15 @@ struct AnnotationEditorInspector: View {
     var body: some View {
         ScrollView(.vertical) {
             VStack(alignment: .leading, spacing: 0) {
+                AnnotationStyleStrip(
+                    model: model,
+                    presetStore: backgroundPresetStore,
+                    onEditorAction: onEditorAction
+                )
+
                 // Always present so selecting or deselecting annotations never
                 // shifts the sections below.
-                InspectorSection("Style") {
+                InspectorSection("Annotation") {
                     styleControls
                 }
 
@@ -207,20 +213,6 @@ struct AnnotationEditorInspector: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .topLeading)
-        }
-        .safeAreaInset(edge: .top, spacing: 0) {
-            VStack(spacing: 0) {
-                AnnotationBackgroundPresetBar(
-                    model: model,
-                    presetStore: backgroundPresetStore,
-                    onEditorAction: onEditorAction
-                )
-
-                Rectangle()
-                    .fill(Color(nsColor: .separatorColor).opacity(0.45))
-                    .frame(height: 0.5)
-            }
-            .background(sidebarBackground)
         }
         .scrollContentBackground(.hidden)
         .scrollEdgeEffectSoftIfAvailable()

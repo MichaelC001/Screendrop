@@ -555,26 +555,6 @@ struct InspectorIconButton: View {
     }
 }
 
-/// The screenshot and recording preset bars use the same action treatment.
-struct PresetBarIconButton: View {
-    let systemImage: String
-    let accessibilityLabel: String
-    let help: String
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: systemImage)
-                .font(.system(size: 14, weight: .medium))
-                .frame(width: 28, height: 28)
-                .contentShape(Circle())
-        }
-        .buttonStyle(InspectorIconButtonStyle())
-        .help(help)
-        .accessibilityLabel(accessibilityLabel)
-    }
-}
-
 private struct InspectorIconButtonStyle: ButtonStyle {
     @Environment(\.isEnabled) private var isEnabled
     @State private var isHovering = false
