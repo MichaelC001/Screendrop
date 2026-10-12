@@ -25,6 +25,9 @@ struct StudioActionFooter: View {
     @State private var shareFlash: String?
     /// Which job the status line reports on once neither is running.
     @State private var lastJob: Job = .export
+    /// A failure the status line has shown long enough; it falls back to
+    /// the format summary rather than staying until the next job.
+    @State private var expiredFailure: String?
     @Namespace private var glass
 
     private enum Job {
@@ -78,12 +81,20 @@ struct StudioActionFooter: View {
         .padding(.bottom, 16)
         .motion(.morph, value: layoutKey)
         .motion(.morphQuick, value: statusKey)
+        .task(id: statusKey) {
+            guard case .failed(let message) = currentStatus else { return }
+            try? await Task.sleep(for: .seconds(6))
+            guard !Task.isCancelled else { return }
+            expiredFailure = message
+        }
         .onChange(of: model.exportState) { _, state in
             lastJob = .export
+            expiredFailure = nil
             if case .finished = state { flashExport("Exported") }
         }
         .onChange(of: model.shareState) { _, state in
             lastJob = .share
+            expiredFailure = nil
             if case .finished = state { flashShare("Link Copied") }
         }
     }
@@ -200,10 +211,14 @@ struct StudioActionFooter: View {
         switch lastJob {
         case .export:
             if case .finished(let url) = model.exportState { return .exported(url) }
-            if case .failed(let message) = model.exportState { return .failed("Export failed: \(message)") }
+            if case .failed(let message) = model.exportState, expiredFailure != "Export failed: \(message)" {
+                return .failed("Export failed: \(message)")
+            }
         case .share:
             if case .finished(let link) = model.shareState { return .shared(link) }
-            if case .failed(let message) = model.shareState { return .failed("Share failed: \(message)") }
+            if case .failed(let message) = model.shareState, expiredFailure != "Share failed: \(message)" {
+                return .failed("Share failed: \(message)")
+            }
         }
         return .summary(settingsSummary)
     }

@@ -243,6 +243,8 @@ struct AnnotationEditorWindow: View {
                         systemImage: message.isError ? "exclamationmark.triangle.fill" : "sparkles"
                     )
                     .id(message.text)
+                    .onTapGesture(perform: clearToast)
+                    .help("Click to dismiss")
                     .transition(.rise)
                 }
 
@@ -277,11 +279,23 @@ struct AnnotationEditorWindow: View {
         }
         .padding(.bottom, AnnotationToolDock.bottomPadding)
         .motion(.morph, value: toastMessage?.text)
-        .task(id: model.smartRedactionMessage) {
-            guard model.smartRedactionMessage != nil else { return }
-            try? await Task.sleep(for: .seconds(2.6))
+        // Every message leaves on its own; errors stay long enough to read.
+        .task(id: toastMessage?.text) {
+            guard let message = toastMessage else { return }
+            try? await Task.sleep(for: .seconds(message.isError ? 5 : 2.6))
             guard !Task.isCancelled else { return }
-            model.smartRedactionMessage = nil
+            clearToast()
+        }
+    }
+
+    /// Clears whichever message the toast is showing.
+    private func clearToast() {
+        withAnimation(.morphIfAllowed) {
+            if model.errorMessage != nil, model.previewImage != nil {
+                model.errorMessage = nil
+            } else {
+                model.smartRedactionMessage = nil
+            }
         }
     }
 
