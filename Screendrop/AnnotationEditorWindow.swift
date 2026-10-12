@@ -423,7 +423,8 @@ struct AnnotationEditorWindow: View {
                 if let resultURL = try await model.commitEdits() {
                     let updatedExistingPreview = CaptureShelf.shared.applyAnnotation(
                         originalURL: sourceURL,
-                        historyURL: resultURL
+                        historyURL: resultURL,
+                        addsIfMissing: true
                     )
                     if !updatedExistingPreview {
                         CaptureShelfPresenter.shared.show(displayID: nil)

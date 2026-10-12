@@ -195,33 +195,37 @@ final class CaptureShelf {
     }
 
     /// Swaps in an annotated version of a screenshot, then keeps the
-    /// clipboard and any saved copy in step with it. Returns whether the
-    /// capture was already on the shelf.
+    /// clipboard and any saved copy in step with it. A screenshot that isn't
+    /// on the shelf gets a card only when `addsIfMissing` (finishing an
+    /// edit); a mid-edit save must not drop a card, and with it the whole
+    /// shelf, over the editor. Returns whether the capture was on the shelf.
     @discardableResult
-    func applyAnnotation(originalURL: URL, historyURL: URL) -> Bool {
-        guard let thumbnail = ScreenshotImageLoader.downsampledImage(at: historyURL, maxPixelSize: Self.thumbnailPixelSize) else {
-            return false
-        }
-
-        let id: ShelfItem.ID
-        let wasOnShelf: Bool
+    func applyAnnotation(originalURL: URL, historyURL: URL, addsIfMissing: Bool = false) -> Bool {
         if let existing = items.first(where: { $0.url == originalURL }) {
-            id = existing.id
-            wasOnShelf = true
-            CloudUploader.shared.clearUploadState(for: id)
-            update(id) {
+            guard let thumbnail = ScreenshotImageLoader.downsampledImage(at: historyURL, maxPixelSize: Self.thumbnailPixelSize) else {
+                return true
+            }
+            CloudUploader.shared.clearUploadState(for: existing.id)
+            update(existing.id) {
                 $0.url = historyURL
                 $0.thumbnail = thumbnail
             }
-        } else {
-            let item = ShelfItem(url: historyURL, thumbnail: thumbnail)
-            id = item.id
-            wasOnShelf = false
-            insert(item)
+            republish(existing.id)
+            return true
         }
 
-        republish(id)
-        return wasOnShelf
+        guard addsIfMissing,
+              let thumbnail = ScreenshotImageLoader.downsampledImage(at: historyURL, maxPixelSize: Self.thumbnailPixelSize)
+        else {
+            if ScreendropPreferences.autoCopy {
+                _ = copyImageToClipboard(historyURL)
+            }
+            return false
+        }
+        let item = ShelfItem(url: historyURL, thumbnail: thumbnail)
+        insert(item)
+        republish(item.id)
+        return false
     }
 
     // MARK: - Removing
