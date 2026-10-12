@@ -25,6 +25,7 @@ struct AnnotationEditorWindow: View {
     @State private var closeGuard = EditorCloseGuard()
     @State private var didCopyLink = false
     @State private var saveFlash = false
+    @State private var isToolbarShareOptionsPresented = false
     @FocusState private var focusedField: AnnotationEditorFocusedField?
     @Environment(\.dismiss) private var dismissWindow
 
@@ -120,10 +121,15 @@ struct AnnotationEditorWindow: View {
     // MARK: Toolbar actions
 
     /// Save and the inspector toggle. Crop lives at the end of the tool
-    /// dock, which morphs into the crop bar; everything that finishes or
-    /// shares the screenshot lives in the inspector's footer.
+    /// dock, which morphs into the crop bar. Share, Save As and Done live in
+    /// the inspector's footer, and move up here while the inspector is
+    /// hidden rather than floating over the canvas.
     @ViewBuilder
     private var toolbarActions: some View {
+        if !isInspectorPresented {
+            finishingToolbarActions
+        }
+
         Button(action: saveEdits) {
             Label(saveFlash ? "Saved" : "Save", systemImage: saveFlash ? "checkmark" : "square.and.arrow.down")
                 .labelStyle(.iconOnly)
@@ -141,6 +147,51 @@ struct AnnotationEditorWindow: View {
             Image(systemName: "sidebar.right")
         }
         .help(isInspectorPresented ? "Hide Inspector" : "Show Inspector")
+    }
+
+    /// The footer's actions as toolbar buttons, for when the inspector and
+    /// its footer are hidden.
+    @ViewBuilder
+    private var finishingToolbarActions: some View {
+        let isDisabled = isBusy || model.isCropping
+
+        if CloudUploader.shared.isConfigured {
+            Button {
+                isToolbarShareOptionsPresented = true
+            } label: {
+                Label(
+                    didCopyLink ? "Link Copied" : "Share",
+                    systemImage: didCopyLink ? "checkmark" : isUploading ? "arrow.up.circle" : "link"
+                )
+                .labelStyle(.iconOnly)
+                .contentTransition(.symbolEffect(.replace))
+            }
+            .disabled(isDisabled)
+            .help(isUploading ? "Uploading…" : "Share a link")
+            .popover(isPresented: $isToolbarShareOptionsPresented, arrowEdge: .bottom) {
+                CloudUploadOptionsPopover(
+                    suggestedTitle: model.sourceURL?.deletingPathExtension().lastPathComponent ?? "",
+                    onConfirm: uploadAnnotation
+                )
+            }
+        }
+
+        Button(action: saveAs) {
+            Label("Save a Copy As…", systemImage: "square.and.arrow.down.on.square")
+                .labelStyle(.iconOnly)
+        }
+        .disabled(isDisabled)
+        .help("Save a Copy As…")
+
+        Button(action: finishEditing) {
+            Label(isFinishing ? "Saving…" : "Done", systemImage: "checkmark")
+                .labelStyle(.titleAndIcon)
+        }
+        .buttonStyle(.glassProminent)
+        .tint(Palette.accent)
+        .foregroundStyle(Palette.onAccent)
+        .disabled(isDisabled)
+        .help("Save and close")
     }
 
     /// Share, Save As and Done, built like Studio's Share/Export footer.
@@ -198,15 +249,6 @@ struct AnnotationEditorWindow: View {
         .overlay(alignment: .bottom) {
             if hasImage {
                 bottomChrome
-            }
-        }
-        .overlay(alignment: .bottomTrailing) {
-            if !isInspectorPresented, !model.isCropping, hasImage {
-                actionFooter
-                    .frame(width: 300)
-                    .padding(.trailing, 6)
-                    .padding(.bottom, AnnotationToolDock.height + AnnotationToolDock.bottomPadding)
-                    .transition(.rise)
             }
         }
         .motion(.morph, value: model.isCropping)
