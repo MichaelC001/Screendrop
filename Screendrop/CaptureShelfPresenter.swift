@@ -86,6 +86,9 @@ final class CaptureShelfPresenter {
         panel.isFloatingPanel = true
         panel.isReleasedWhenClosed = false
         panel.level = .screenSaver
+        // The cards bring their own entrance; AppKit's window fade on top of
+        // it reads as a second, different transition.
+        panel.animationBehavior = .none
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
         PreviewWindowCaptureExclusion.shared.register(window: panel)
 

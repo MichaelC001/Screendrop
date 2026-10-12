@@ -18,6 +18,10 @@ struct CaptureShelfView: View {
     @State private var shelf = CaptureShelf.shared
     @State private var isShelfHovered = false
     @State private var hoverEndTask: Task<Void, Never>?
+    /// False until the panel's first frame. The first card is already on
+    /// the shelf when the panel is built, so it never gets an insertion
+    /// transition; the column slides in instead, the way later cards do.
+    @State private var hasEntered = false
     @AppStorage(ScreendropPreferences.previewPositionKey) private var positionRaw = PreviewOverlayPosition.right.rawValue
     @AppStorage(ScreendropPreferences.shelfHandlePositionKey) private var handlePosition = 0.5
 
@@ -35,7 +39,7 @@ struct CaptureShelfView: View {
                 column
                     .padding(isLeft ? .leading : .trailing, CaptureShelfMetrics.edgeInset)
                     .padding(.bottom, CaptureShelfMetrics.bottomInset)
-                    .offset(x: shelf.isTucked ? CaptureShelfMetrics.panelWidth * outward : 0)
+                    .offset(x: shelf.isTucked || !hasEntered ? CaptureShelfMetrics.panelWidth * outward : 0)
 
                 if shelf.isTucked, !shelf.items.isEmpty {
                     CaptureShelfHandle(
@@ -51,6 +55,11 @@ struct CaptureShelfView: View {
             }
             .frame(width: proxy.size.width, height: proxy.size.height, alignment: Alignment(horizontal: edge, vertical: .bottom))
             .onAppear { shelf.capacity = CaptureShelfMetrics.capacity(forHeight: proxy.size.height) }
+            .task {
+                // Wait a turn so the panel is on screen before the slide starts.
+                await Task.yield()
+                withAnimation(.morphIfAllowed) { hasEntered = true }
+            }
             .onChange(of: proxy.size.height) { _, height in
                 shelf.capacity = CaptureShelfMetrics.capacity(forHeight: height)
             }
