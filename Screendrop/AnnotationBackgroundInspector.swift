@@ -43,6 +43,21 @@ struct AnnotationFrameInspector: View {
                 onEndPreview: onEndPreview
             )
 
+            if !settings.requiresCanvasLayout {
+                InspectorHint("Pick a background to frame the screenshot.")
+            }
+
+            frameControls
+                // Without a canvas there is nothing to pad, round or shadow.
+                // Dimmed rather than hidden, so picking a fill doesn't shift
+                // the list.
+                .disabled(!settings.requiresCanvasLayout)
+                .opacity(settings.requiresCanvasLayout ? 1 : 0.4)
+        }
+    }
+
+    private var frameControls: some View {
+        VStack(alignment: .leading, spacing: InspectorMetrics.rowSpacing) {
             InspectorFieldPair {
                 InspectorSlider(
                     "Padding",

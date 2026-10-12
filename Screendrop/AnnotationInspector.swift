@@ -67,6 +67,10 @@ struct AnnotationEditorInspector: View {
                                 .minimumScaleFactor(0.8)
                         }
                     )
+                    // The ratio shapes the background canvas; there is none
+                    // to shape without one.
+                    .disabled(!model.backgroundSettings.usesCanvasLayout)
+                    .opacity(model.backgroundSettings.usesCanvasLayout ? 1 : 0.4)
                 }
 
                 InspectorSection(
