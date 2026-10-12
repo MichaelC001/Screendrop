@@ -27,6 +27,8 @@ struct OverlayCardEditor: View {
     @State private var centerItemFrames: [CenterItemFrame] = []
 
     private let cardSize = CGSize(width: 210, height: 158)
+    /// The shelf card's radius, scaled up with the editor's larger card.
+    private static let cardRadius = CaptureShelfMetrics.cardRadius * 210 / CaptureShelfMetrics.cardSize.width
     private let spaceName = "cardEditor"
     private var layout: OverlayCardLayout { store.layout }
 
@@ -64,8 +66,8 @@ struct OverlayCardEditor: View {
 
     private var header: some View {
         VStack(spacing: 4) {
-            Text("Customize the preview card")
-                .font(.headline)
+            Text("Customize the capture card")
+                .font(.dsHeadline)
             Text("Drag actions into the corners or the center. Drop them in the tray to hide.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -74,15 +76,11 @@ struct OverlayCardEditor: View {
     }
 
     private var footer: some View {
-        Button {
-            withAnimation(.spring(response: 0.45, dampingFraction: 0.78)) {
+        SettingsButton("Reset to Default", systemImage: "arrow.uturn.backward") {
+            withAnimation(.morphIfAllowed) {
                 store.reset()
             }
-        } label: {
-            Label("Reset to default", systemImage: "arrow.uturn.backward")
         }
-        .buttonStyle(.borderless)
-        .controlSize(.small)
     }
 
     // MARK: - Card
@@ -100,7 +98,7 @@ struct OverlayCardEditor: View {
             centerColumn
         }
         .frame(width: cardSize.width, height: cardSize.height)
-        .animation(.spring(response: 0.42, dampingFraction: 0.78), value: layout)
+        .motion(.morph, value: layout)
         // Slot-placeholder highlights animate on their own gentle curve. The
         // floating chip's morph is driven solely by the curve in the drag
         // handler, so it is not double-animated here.
@@ -108,7 +106,7 @@ struct OverlayCardEditor: View {
     }
 
     private var cardBackground: some View {
-        RoundedRectangle(cornerRadius: 24, style: .continuous)
+        RoundedRectangle(cornerRadius: Self.cardRadius, style: .continuous)
             .fill(
                 LinearGradient(
                     colors: [Color(white: 0.32), Color(white: 0.17)],
@@ -122,7 +120,7 @@ struct OverlayCardEditor: View {
                     .foregroundStyle(.white.opacity(0.06))
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                RoundedRectangle(cornerRadius: Self.cardRadius, style: .continuous)
                     .strokeBorder(.white.opacity(0.14), lineWidth: 1)
             )
             .shadow(color: .black.opacity(0.25), radius: 18, x: 0, y: 10)
@@ -220,8 +218,8 @@ struct OverlayCardEditor: View {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .strokeBorder(highlighted ? Palette.highlight : .clear, lineWidth: 2)
         )
-        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: hoveredZone)
-        .animation(.spring(response: 0.42, dampingFraction: 0.78), value: layout)
+        .motion(.morphQuick, value: hoveredZone)
+        .motion(.morph, value: layout)
         .background(frameReporter(.tray))
     }
 
@@ -277,7 +275,7 @@ struct OverlayCardEditor: View {
                     index = centerInsertionIndex(at: value.location)
                 }
 
-                withAnimation(.spring(response: 0.45, dampingFraction: 0.78)) {
+                withAnimation(.morphIfAllowed) {
                     if let target {
                         var updated = layout
                         updated.place(action, into: target, centerIndex: index)
