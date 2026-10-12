@@ -30,6 +30,9 @@ enum ScreendropPreferences {
     static let previewPositionKey = "previewPosition"
     static let previewAutoCloseSecondsKey = "previewAutoCloseSeconds"
     static let previewCloseAfterDraggingKey = "previewCloseAfterDragging"
+    /// Where the tucked shelf's handle sits along the screen edge, from 0
+    /// (top) to 1 (bottom).
+    static let shelfHandlePositionKey = "captureShelfHandlePosition"
     static let overlayCardLayoutKey = "overlayCardLayout"
     static let lowResolutionEditorPreviewKey = "lowResolutionEditorPreview"
     static let trimFullscreenMenuBarKey = "trimFullscreenMenuBar"

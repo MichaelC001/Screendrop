@@ -19,6 +19,7 @@ struct CaptureShelfView: View {
     @State private var isShelfHovered = false
     @State private var hoverEndTask: Task<Void, Never>?
     @AppStorage(ScreendropPreferences.previewPositionKey) private var positionRaw = PreviewOverlayPosition.right.rawValue
+    @AppStorage(ScreendropPreferences.shelfHandlePositionKey) private var handlePosition = 0.5
 
     private var isLeft: Bool { positionRaw == PreviewOverlayPosition.left.rawValue }
     /// +1 when docked right, -1 when docked left: the direction of "out".
@@ -37,10 +38,14 @@ struct CaptureShelfView: View {
                     .offset(x: shelf.isTucked ? CaptureShelfMetrics.panelWidth * outward : 0)
 
                 if shelf.isTucked, !shelf.items.isEmpty {
-                    CaptureShelfHandle(count: shelf.items.count, isLeft: isLeft) {
+                    CaptureShelfHandle(
+                        count: shelf.items.count,
+                        isLeft: isLeft,
+                        trackHeight: proxy.size.height,
+                        position: $handlePosition
+                    ) {
                         shelf.open()
                     }
-                    .frame(maxHeight: .infinity)
                     .transition(.offset(x: 60 * outward))
                 }
             }
@@ -145,38 +150,84 @@ private struct CaptureShelfHeader: View {
     }
 }
 
-/// The tucked shelf: a slim glass tab against the middle of the docked edge,
-/// showing how many captures wait inside. Clicking it, or swiping away from
-/// the edge on it, brings the cards back.
+/// The tucked shelf: a slim glass tab against the docked edge, showing how
+/// many captures wait inside. Clicking it, or swiping away from the edge on
+/// it, brings the cards back. It drags up and down the edge, never off it,
+/// and stays where it is left.
 private struct CaptureShelfHandle: View {
     let count: Int
     let isLeft: Bool
+    /// Height of the edge it slides along.
+    let trackHeight: CGFloat
+    /// 0 at the top of the track, 1 at the bottom.
+    @Binding var position: Double
     let action: () -> Void
 
     @State private var isHovered = false
+    @State private var dragStartTop: CGFloat?
+    @State private var dragTop: CGFloat?
+
+    private static let height: CGFloat = 64
+    /// Keeps the handle off the menu bar side and the Dock side.
+    private static let margin: CGFloat = 24
+
+    private var travel: CGFloat {
+        max(0, trackHeight - Self.height - Self.margin * 2)
+    }
+
+    private var restingTop: CGFloat {
+        Self.margin + travel * CGFloat(min(max(position, 0), 1))
+    }
 
     var body: some View {
-        Button(action: action) {
-            VStack(spacing: 6) {
-                Image(systemName: isLeft ? "chevron.right" : "chevron.left")
-                    .font(.system(size: 9, weight: .bold))
-                Text("\(count)")
-                    .font(.system(size: 11, weight: .semibold).monospacedDigit())
-                    .contentTransition(.numericText())
-            }
-            .foregroundStyle(Palette.label)
-            .frame(width: isHovered ? 30 : 24, height: 64)
-            .contentShape(Rectangle())
+        tab
+            .frame(maxHeight: .infinity, alignment: .top)
+            .offset(y: dragTop ?? restingTop)
+    }
+
+    private var tab: some View {
+        VStack(spacing: 6) {
+            Image(systemName: isLeft ? "chevron.right" : "chevron.left")
+                .font(.system(size: 9, weight: .bold))
+            Text("\(count)")
+                .font(.system(size: 11, weight: .semibold).monospacedDigit())
+                .contentTransition(.numericText())
         }
-        .buttonStyle(.plain)
+        .foregroundStyle(Palette.label)
+        .frame(width: isHovered || dragTop != nil ? 30 : 24, height: Self.height)
+        .contentShape(Rectangle())
         .glassEffect(.regular.interactive(), in: handleShape)
+        // A drag only begins once the pointer moves, so a click still opens
+        // the shelf.
+        .gesture(drag)
+        .onTapGesture(perform: action)
+        .pointerStyle(dragTop == nil ? .grabIdle : .grabActive)
         .padding(isLeft ? .leading : .trailing, 3)
         .onHover { isHovered = $0 }
         .motion(.morphQuick, value: isHovered)
         .motion(.morphQuick, value: count)
-        .help(count == 1 ? "Show 1 capture" : "Show \(count) captures")
+        .help(count == 1 ? "Show 1 capture · drag to move" : "Show \(count) captures · drag to move")
+        .accessibilityElement(children: .ignore)
+        .accessibilityAddTraits(.isButton)
         .accessibilityLabel("Show captures")
         .accessibilityValue("\(count)")
+        .accessibilityAction { action() }
+    }
+
+    private var drag: some Gesture {
+        DragGesture(minimumDistance: 3, coordinateSpace: .global)
+            .onChanged { value in
+                let start = dragStartTop ?? restingTop
+                dragStartTop = start
+                dragTop = min(max(start + value.translation.height, Self.margin), Self.margin + travel)
+            }
+            .onEnded { _ in
+                if let dragTop, travel > 0 {
+                    position = Double((dragTop - Self.margin) / travel)
+                }
+                dragTop = nil
+                dragStartTop = nil
+            }
     }
 
     private var handleShape: UnevenRoundedRectangle {
