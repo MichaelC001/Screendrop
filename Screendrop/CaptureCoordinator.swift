@@ -84,7 +84,7 @@ final class CaptureCoordinator {
     @discardableResult
     private func performCaptureFullscreen() async -> URL? {
         let displayID = ActiveDisplayResolver.activeDisplayID(preferPointer: false)
-        PreviewWindowPlacement.shared.setTargetDisplayID(displayID)
+        CaptureShelfPresenter.shared.setTargetDisplay(displayID)
 
         guard await CaptureCountdownPresenter.shared.runIfNeeded(
             seconds: ScreendropPreferences.captureDelaySeconds,
@@ -206,9 +206,9 @@ final class CaptureCoordinator {
     private func showPreview(url: URL, displayID: CGDirectDisplayID?) -> URL {
         guard let onShowPreview else {
             let historyURL = ScreenshotHistoryStore.shared.importScreenshot(from: url)
-            ScreenshotPreviewStack.shared.add(url: historyURL)
+            CaptureShelf.shared.add(url: historyURL)
             if AfterCaptureActions.isEnabled(.showOverlay, for: .screenshot) {
-                PreviewPanelPresenter.shared.show(displayID: displayID)
+                CaptureShelfPresenter.shared.show(displayID: displayID)
             }
             return historyURL
         }

@@ -22,8 +22,8 @@ extension CaptureLibraryModel {
         case .edit:
             guard selected.count == 1, let item = selected.first else { return }
             QuickLookPreviewPresenter.dismiss()
-            if item.isVideo { PreviewPanelPresenter.shared.onEditVideo?(item.session?.directoryURL ?? item.fileURL) }
-            else { PreviewPanelPresenter.shared.onAnnotate?(item.fileURL) }
+            if item.isVideo { CaptureShelfPresenter.shared.onEditVideo?(item.session?.directoryURL ?? item.fileURL) }
+            else { CaptureShelfPresenter.shared.onAnnotate?(item.fileURL) }
         case .rename:
             guard selected.count == 1, let item = selected.first else { return }
             renamingItem = item
@@ -85,10 +85,10 @@ extension CaptureLibraryModel {
                     removedIDs.formUnion(item.historyIDs)
                     removedEntries.insert(item.id)
                     if let session = item.session {
-                        ScreenshotPreviewStack.shared.dismissRecordingSession(session.directoryURL)
+                        CaptureShelf.shared.dismissRecordingSession(session.directoryURL)
                     } else {
-                        let cards = ScreenshotPreviewStack.shared.items.filter { $0.url.standardizedFileURL == item.fileURL.standardizedFileURL }
-                        for card in cards { ScreenshotPreviewStack.shared.dismiss(id: card.id) }
+                        let cards = CaptureShelf.shared.items.filter { $0.url.standardizedFileURL == item.fileURL.standardizedFileURL }
+                        for card in cards { CaptureShelf.shared.dismiss(id: card.id) }
                     }
                 } catch { failures.append("\(item.name): \(error.localizedDescription)") }
             }
@@ -121,7 +121,7 @@ extension CaptureLibraryModel {
             ScreenshotHistoryStore.shared.setLibraryCloudURL(id: id, cloudURL: result.url)
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(result.url, forType: .string)
-            if item.isVideo { ScreenshotPreviewStack.shared.dismissVideo(for: item.ownedURL) }
+            if item.isVideo { CaptureShelf.shared.dismissVideo(for: item.ownedURL) }
             self.refresh()
         }
     }
@@ -157,7 +157,7 @@ extension CaptureLibraryModel {
                             try CaptureLibraryFiles.export(source, name: item.name, to: directory)
                         }.value
                         exported.append(destination)
-                        if item.isVideo { ScreenshotPreviewStack.shared.dismissVideo(for: item.ownedURL) }
+                        if item.isVideo { CaptureShelf.shared.dismissVideo(for: item.ownedURL) }
                     } catch { failures.append("\(item.name): \(error.localizedDescription)") }
                 }
                 if !exported.isEmpty { NSWorkspace.shared.activateFileViewerSelecting(exported) }

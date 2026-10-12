@@ -157,7 +157,7 @@ final class ScreenRecordingManager {
         finishAction = .preview
         isStopping = false
 
-        PreviewWindowPlacement.shared.setTargetDisplayID(targetDisplayID)
+        CaptureShelfPresenter.shared.setTargetDisplay(targetDisplayID)
         RecordingControlPresenter.shared.show(displayID: targetDisplayID)
         if case .area(let display, let rect) = source.kind {
             RecordingAreaHighlightPresenter.shared.show(display: display, rect: rect)

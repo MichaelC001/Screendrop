@@ -31,10 +31,7 @@ final class QuickLookPreviewPresenter: NSObject, QLPreviewPanelDataSource, QLPre
     private func show(url: URL) {
         previewURL = url as NSURL
         
-        guard let panel = QLPreviewPanel.shared() else {
-            ScreenshotPreviewStack.shared.expand()
-            return
-        }
+        guard let panel = QLPreviewPanel.shared() else { return }
 
         // Activate the app *before* presenting the panel so macOS considers
         // it the frontmost process. Without this, the QuickLook window opens
@@ -45,9 +42,6 @@ final class QuickLookPreviewPresenter: NSObject, QLPreviewPanelDataSource, QLPre
         panel.delegate = self
         panel.currentPreviewItemIndex = 0
         panel.reloadData()
-        // Collapse the floating overlay into the peek tab so it doesn't sit on
-        // top of the Quick Look window. Expanded again when Quick Look closes.
-        ScreenshotPreviewStack.shared.collapse()
         if panel.isVisible {
             panel.refreshCurrentPreviewItem()
         } else {
@@ -63,11 +57,6 @@ final class QuickLookPreviewPresenter: NSObject, QLPreviewPanelDataSource, QLPre
     }
     
     private func dismiss() {
-        // Only restore (expand) the overlay if Quick Look is actually on screen.
-        // This method doubles as generic cleanup that's called whenever cards are
-        // inserted or removed; in those cases there's no Quick Look window to
-        // close, and unconditionally expanding would pop the collapsed peek stack
-        // back open (e.g. when an auto-close timer fires in peek mode).
         guard QLPreviewPanel.sharedPreviewPanelExists(),
               let panel = QLPreviewPanel.shared(),
               panel.isVisible else {
@@ -77,14 +66,12 @@ final class QuickLookPreviewPresenter: NSObject, QLPreviewPanelDataSource, QLPre
 
         panel.orderOut(nil)
         previewURL = nil
-        ScreenshotPreviewStack.shared.expand()
     }
 
     /// Fires when Quick Look closes on its own (e.g. the user clicks its close
     /// button or it loses key focus), which bypasses `dismiss()`.
     func windowWillClose(_ notification: Notification) {
         previewURL = nil
-        ScreenshotPreviewStack.shared.expand()
     }
     
     nonisolated func numberOfPreviewItems(in panel: QLPreviewPanel!) -> Int {

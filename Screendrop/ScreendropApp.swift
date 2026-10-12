@@ -58,7 +58,7 @@ struct ScreendropApp: App {
         CaptureLibraryModel.shared.installOpener { [openWindow] in
             openWindow(id: "CAPTURE_LIBRARY")
         }
-        PreviewPanelPresenter.shared.onAnnotate = { [openWindow] url in
+        CaptureShelfPresenter.shared.onAnnotate = { [openWindow] url in
             openWindow(id: "ANNOTATION_EDITOR", value: url)
         }
         let openVideoEditor: (URL) -> Void = { [openWindow] url in
@@ -67,26 +67,26 @@ struct ScreendropApp: App {
             // Refocusing an existing Studio window does not run its load task
             // again. New windows dismiss their card after a successful load.
             if StudioProjectRegistry.shared.hasLoadedEditor(for: editorURL) {
-                ScreenshotPreviewStack.shared.dismissVideo(for: editorURL)
+                CaptureShelf.shared.dismissVideo(for: editorURL)
             }
         }
-        PreviewPanelPresenter.shared.onEditVideo = openVideoEditor
+        CaptureShelfPresenter.shared.onEditVideo = openVideoEditor
         // The menu bar extra has no scene of its own, so it reaches Studio
         // through this opener.
         RecordingProjectOpener.shared.openHandler = openVideoEditor
 
         CaptureCoordinator.shared.onShowPreview = { [openWindow] url, displayID in
             // Set the editor openers first so auto-annotate can fire during add.
-            PreviewPanelPresenter.shared.onAnnotate = { url in
+            CaptureShelfPresenter.shared.onAnnotate = { url in
                 openWindow(id: "ANNOTATION_EDITOR", value: url)
             }
-            PreviewPanelPresenter.shared.onEditVideo = openVideoEditor
+            CaptureShelfPresenter.shared.onEditVideo = openVideoEditor
 
             let historyURL = ScreenshotHistoryStore.shared.importScreenshot(from: url)
-            ScreenshotPreviewStack.shared.add(url: historyURL)
+            CaptureShelf.shared.add(url: historyURL)
 
             if AfterCaptureActions.isEnabled(.showOverlay, for: .screenshot) {
-                PreviewPanelPresenter.shared.show(displayID: displayID)
+                CaptureShelfPresenter.shared.show(displayID: displayID)
             }
 
             return historyURL
@@ -108,9 +108,9 @@ struct ScreendropApp: App {
                 // a full-resolution transcode.
                 let historyURL = await ScreenshotHistoryStore.shared.importRecordingSession(session)
                 RecordingProjectStore.shared.reload()
-                ScreenshotPreviewStack.shared.addVideo(url: historyURL)
+                CaptureShelf.shared.addVideo(url: historyURL)
                 if AfterCaptureActions.isEnabled(.showOverlay, for: .recording) {
-                    PreviewPanelPresenter.shared.show(displayID: displayID)
+                    CaptureShelfPresenter.shared.show(displayID: displayID)
                 }
             }
         }
@@ -189,7 +189,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // costs the last edit - the project reopens on its draft.
         StudioProjectRegistry.shared.flushDrafts()
         let unsavedProjectCount = StudioProjectRegistry.shared.unsavedProjectCount
-        let unsavedCount = ScreenshotPreviewStack.shared.unsavedItems.count
+        let unsavedCount = CaptureShelf.shared.unsavedItems.count
         if ScreenRecordingManager.shared.isActive {
             NSApp.activate(ignoringOtherApps: true)
 

@@ -359,7 +359,7 @@ struct AnnotationEditorWindow: View {
                 guard let sourceURL = model.sourceURL else { return }
                 let resultURL = try await model.commitEdits() ?? sourceURL
 
-                _ = ScreenshotPreviewStack.shared.applyAnnotation(
+                _ = CaptureShelf.shared.applyAnnotation(
                     originalURL: sourceURL,
                     historyURL: resultURL
                 )
@@ -394,7 +394,7 @@ struct AnnotationEditorWindow: View {
             do {
                 guard let sourceURL = model.sourceURL,
                       let resultURL = try await model.commitEdits() else { return }
-                _ = ScreenshotPreviewStack.shared.applyAnnotation(
+                _ = CaptureShelf.shared.applyAnnotation(
                     originalURL: sourceURL,
                     historyURL: resultURL
                 )
@@ -421,12 +421,12 @@ struct AnnotationEditorWindow: View {
         Task {
             do {
                 if let resultURL = try await model.commitEdits() {
-                    let updatedExistingPreview = ScreenshotPreviewStack.shared.applyAnnotation(
+                    let updatedExistingPreview = CaptureShelf.shared.applyAnnotation(
                         originalURL: sourceURL,
                         historyURL: resultURL
                     )
                     if !updatedExistingPreview {
-                        PreviewPanelPresenter.shared.show(displayID: nil)
+                        CaptureShelfPresenter.shared.show(displayID: nil)
                     }
                 }
                 guard !model.hasUnsavedChanges else {
@@ -458,7 +458,7 @@ struct AnnotationEditorWindow: View {
                     do {
                         if let sourceURL = model.sourceURL,
                            let resultURL = try await model.commitEdits() {
-                            _ = ScreenshotPreviewStack.shared.applyAnnotation(
+                            _ = CaptureShelf.shared.applyAnnotation(
                                 originalURL: sourceURL,
                                 historyURL: resultURL
                             )

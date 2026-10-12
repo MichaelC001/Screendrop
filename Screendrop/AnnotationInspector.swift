@@ -203,9 +203,6 @@ struct AnnotationEditorInspector: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .topLeading)
-            // Reserve clearance so the final inspector controls are never
-            // hidden behind the floating preview peek pill.
-            .padding(.bottom, PreviewPeekTab.pillHeight * 1.1)
         }
         .safeAreaInset(edge: .top, spacing: 0) {
             VStack(spacing: 0) {

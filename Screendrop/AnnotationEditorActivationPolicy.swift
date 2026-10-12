@@ -11,16 +11,18 @@ import AppKit
 @MainActor
 enum AppActivationPolicy {
     private static var activeWindowCount = 0
+    /// Editors opened from the capture shelf, which tuck it while open.
+    private static var shelfEditorCount = 0
 
     /// Call when a regular window (annotation editor, video editor, settings, etc.) appears.
     /// Pass `hidePreview: true` for editing flows launched from the preview panel.
     static func enter(hidePreview: Bool = false) {
         activeWindowCount += 1
         if hidePreview {
-            // The overlay stays on screen but tucks into the peek tab so it
-            // doesn't sit on top of the editor. The panel is never ordered out,
-            // so there's no show/hide race when the editor closes.
-            ScreenshotPreviewStack.shared.collapse()
+            // The shelf tucks into the screen edge rather than covering the
+            // editor; its handle stays to bring it back.
+            shelfEditorCount += 1
+            CaptureShelf.shared.tuck(.editor)
         }
         NSApp.setActivationPolicy(.regular)
         NSApp.unhide(nil)
@@ -31,11 +33,13 @@ enum AppActivationPolicy {
     /// Pass `restorePreview: true` for editing flows launched from the preview panel.
     static func leave(restorePreview: Bool = false) {
         activeWindowCount = max(0, activeWindowCount - 1)
-        guard activeWindowCount == 0 else { return }
-
         if restorePreview {
-            ScreenshotPreviewStack.shared.expand()
+            shelfEditorCount = max(0, shelfEditorCount - 1)
+            if shelfEditorCount == 0 {
+                CaptureShelf.shared.untuck(.editor)
+            }
         }
+        guard activeWindowCount == 0 else { return }
 
         Task { @MainActor in
             guard activeWindowCount == 0 else { return }

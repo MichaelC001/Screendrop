@@ -42,7 +42,7 @@ struct RecordingStudioWindow: View {
                 return
             }
             if model === newModel, newModel.isLoaded {
-                ScreenshotPreviewStack.shared.dismissVideo(for: newModel.sessionURL)
+                CaptureShelf.shared.dismissVideo(for: newModel.sessionURL)
             }
         }
         .onDisappear {

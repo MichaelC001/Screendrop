@@ -41,7 +41,7 @@ All source is in `Screendrop/` (flat, no subdirectories). Key flow:
 1. **App entry** - `ScreendropApp.swift`: `@main` App struct. Creates a `MenuBarExtra`, a Settings window, and an annotation editor `WindowGroup`.
 2. **Hotkeys** - `HotkeyManager.swift`: Registers global Carbon hotkeys (Option+1/2/3) at launch via `AppDelegate`.
 3. **Capture** - `CaptureCoordinator.swift` → `ScreenshotManager.swift`: Fullscreen uses `ScreenCaptureKit`; window/area use `/usr/sbin/screencapture` CLI.
-4. **Preview** - `PreviewPanelPresenter.swift` + `PreviewWindowView.swift`: Borderless floating `NSPanel` showing a screenshot stack. Uses `ScreenshotPreviewStack` (an `@Observable` model).
+4. **Capture shelf** - `CaptureShelfPresenter.swift` + `CaptureShelfView.swift` + `CaptureShelfCard.swift`: a borderless, card-wide `NSPanel` against the docked screen edge showing recent captures. `CaptureShelf` (an `@Observable` model) owns the cards and their actions; tucking slides them out through the edge and leaves a handle.
 5. **Annotation** - `AnnotationEditorWindow.swift` + `AnnotationEditorModel.swift` + `AnnotationCanvas.swift`: Full annotation editor with tools (rectangle, ellipse, arrow, freehand, text, numbered circles, pixelate, blur). All coordinates are normalized (0..1) relative to the image.
 6. **Rendering** - `AnnotationRenderer.swift`: Composites annotations onto the source image at full pixel resolution using Core Graphics.
 7. **Preferences** - `ScreendropPreferences.swift` + `SettingsView.swift`: `UserDefaults`-backed settings (auto-save, auto-copy, auto-compress, export directory).
@@ -49,7 +49,7 @@ All source is in `Screendrop/` (flat, no subdirectories). Key flow:
 
 ### Singletons
 
-Most managers are `static let shared` singletons: `ScreenshotManager`, `CaptureCoordinator`, `HotkeyManager`, `PreviewPanelPresenter`, `ScreenshotPreviewStack`, `PreviewWindowPlacement`, `PreviewWindowCaptureExclusion`. Follow this pattern for new services.
+Most managers are `static let shared` singletons: `ScreenshotManager`, `CaptureCoordinator`, `HotkeyManager`, `CaptureShelfPresenter`, `CaptureShelf`, `PreviewWindowCaptureExclusion`. Follow this pattern for new services.
 
 ### Annotation coordinate system
 

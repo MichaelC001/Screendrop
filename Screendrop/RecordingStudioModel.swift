@@ -1979,7 +1979,7 @@ final class RecordingStudioModel {
                     )
                     RecordingExportNotifier.notifySuccess(fileURL: savedURL)
                     RecordingExportNotifier.revealIfPreferred(fileURL: savedURL)
-                    ScreenshotPreviewStack.shared.dismissVideo(for: previewURL)
+                    CaptureShelf.shared.dismissVideo(for: previewURL)
                     self?.exportState = .finished(savedURL)
                 } catch {
                     self?.exportState = .failed(error.localizedDescription)
@@ -2014,7 +2014,7 @@ final class RecordingStudioModel {
                 DockExportProgressCoordinator.shared.finish(dockProgressID)
                 RecordingExportNotifier.notifySuccess(fileURL: savedURL)
                 RecordingExportNotifier.revealIfPreferred(fileURL: savedURL)
-                ScreenshotPreviewStack.shared.dismissVideo(for: previewURL)
+                CaptureShelf.shared.dismissVideo(for: previewURL)
                 self?.exportState = .finished(savedURL)
             } catch is CancellationError {
                 DockExportProgressCoordinator.shared.finish(dockProgressID)
@@ -2306,7 +2306,7 @@ final class RecordingStudioModel {
                 if session != nil {
                     ScreenshotHistoryStore.shared.setCloudURL(for: uploadURL, cloudURL: result.url)
                 }
-                ScreenshotPreviewStack.shared.dismissVideo(for: self.sessionURL)
+                CaptureShelf.shared.dismissVideo(for: self.sessionURL)
                 self.shareState = .finished(result.url)
             } catch is CancellationError {
                 self?.shareState = .idle

@@ -83,7 +83,7 @@ final class RecordingProjectStore {
     /// no surface can disagree about whether a recording exists. The card goes
     /// first, while its files are still on disk.
     func delete(_ session: RecordingSession) {
-        ScreenshotPreviewStack.shared.dismissRecordingSession(session.directoryURL)
+        CaptureShelf.shared.dismissRecordingSession(session.directoryURL)
         ScreenshotHistoryStore.shared.deleteRecordingSession(session)
         RecordingSessionStore.deleteSession(session)
         reload()
@@ -174,7 +174,7 @@ final class RecordingProjectStore {
 /// Opening a project has to reach the `VIDEO_EDITOR` scene from AppKit-hosted
 /// surfaces such as the menu bar extra, which have no scene
 /// environment of their own. `ScreendropApp` installs the opener, mirroring
-/// what `PreviewPanelPresenter.onEditVideo` already does.
+/// what `CaptureShelfPresenter.onEditVideo` already does.
 @MainActor
 final class RecordingProjectOpener {
     static let shared = RecordingProjectOpener()

@@ -39,39 +39,7 @@ final class PreviewWindowCaptureExclusion {
         }
     }
 
-    /// Applies capture visibility to the overlay panel and wires it into the
-    /// placement manager.
-    ///
-    /// The overlay no longer hides itself for editors or Quick Look - it stays
-    /// mounted and collapses into the peek tab instead (see
-    /// `ScreenshotPreviewStack.collapse()`), and the passthrough hosting view
-    /// keeps it from intercepting clicks meant for the windows beneath it.
-    func attach(window: NSWindow?) {
-        guard let window else { return }
-
-        register(window: window)
-        PreviewWindowPlacement.shared.attach(window: window)
-    }
-
     private func applyCaptureVisibility(to window: NSWindow) {
         window.sharingType = Self.includesAppWindowsInCaptures ? .readOnly : .none
-    }
-}
-
-struct PreviewWindowCaptureExclusionView: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSView {
-        let view = NSView()
-        updateWindow(for: view)
-        return view
-    }
-    
-    func updateNSView(_ nsView: NSView, context: Context) {
-        updateWindow(for: nsView)
-    }
-    
-    private func updateWindow(for view: NSView) {
-        DispatchQueue.main.async {
-            PreviewWindowCaptureExclusion.shared.attach(window: view.window)
-        }
     }
 }
