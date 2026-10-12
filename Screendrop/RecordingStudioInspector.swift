@@ -507,6 +507,10 @@ struct StudioInspector: View {
                 range: 0...1,
                 format: .percent()
             )
+            // The shadow falls on the background; with none there is
+            // nothing for it to fall on.
+            .disabled(model.style.background == .none)
+            .opacity(model.style.background == .none ? 0.4 : 1)
         }
     }
 

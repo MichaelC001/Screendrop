@@ -262,7 +262,8 @@ struct StudioStylePreview: View {
         GeometryReader { proxy in
             let size = proxy.size
             let short = min(size.width, size.height)
-            let inset = style.background == .none ? 0 : style.padding * short
+            // The canvas pads the video whether or not there is a fill.
+            let inset = style.padding * short
             let available = CGSize(
                 width: max(1, size.width - inset * 2),
                 height: max(1, size.height - inset * 2)
