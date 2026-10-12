@@ -359,6 +359,14 @@ final class AnnotationEditorModel {
     func beginInteraction(at location: CGPoint, imageFrame: CGRect, boundaryFrame: CGRect) {
         guard !isCropping else { return }
         updateViewport(imageFrame: imageFrame)
+        // Drawing tools only start on the image (or its canvas), which is all
+        // an export contains. A press outside still ends text editing.
+        // Selecting is allowed everywhere so edge handles stay reachable.
+        if engine.tool != .select, !boundaryFrame.contains(location) {
+            engine.stopEditingText()
+            selectedTool = engine.tool
+            return
+        }
         engine.pointerDown(pointer(at: location))
         selectedTool = engine.tool
         syncStyleFromSelection()
@@ -367,16 +375,26 @@ final class AnnotationEditorModel {
     func updateInteraction(to location: CGPoint, imageFrame: CGRect, boundaryFrame: CGRect) {
         guard !isCropping else { return }
         updateViewport(imageFrame: imageFrame)
-        engine.pointerMove(pointer(at: location))
+        engine.pointerMove(pointer(at: drawingLocation(location, in: boundaryFrame)))
         selectedTool = engine.tool
     }
 
     func endInteraction(at location: CGPoint, imageFrame: CGRect, boundaryFrame: CGRect) {
         guard !isCropping else { return }
         updateViewport(imageFrame: imageFrame)
-        engine.pointerUp(pointer(at: location))
+        engine.pointerUp(pointer(at: drawingLocation(location, in: boundaryFrame)))
         selectedTool = engine.tool
         syncStyleFromSelection()
+    }
+
+    /// A shape being drawn stops at the boundary rather than running off
+    /// the image. Moving and resizing existing shapes is left free.
+    private func drawingLocation(_ location: CGPoint, in boundaryFrame: CGRect) -> CGPoint {
+        guard engine.tool != .select, !boundaryFrame.isEmpty else { return location }
+        return CGPoint(
+            x: min(max(location.x, boundaryFrame.minX), boundaryFrame.maxX),
+            y: min(max(location.y, boundaryFrame.minY), boundaryFrame.maxY)
+        )
     }
 
     func hoveredAnnotation(at location: CGPoint, imageFrame: CGRect, boundaryFrame: CGRect) -> AnnoShape? {
