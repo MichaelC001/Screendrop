@@ -344,6 +344,18 @@ final class AnnotationEditorModel {
         engine.viewport = AnnoViewport(imageFrame: imageFrame, imageSize: imageSize)
     }
 
+    /// Tells the engine which part of the page an export contains, so moved
+    /// and resized shapes stay inside it.
+    private func updatePageLimits(boundaryFrame: CGRect) {
+        guard !boundaryFrame.isEmpty else {
+            engine.pageLimits = nil
+            return
+        }
+        let topLeft = engine.screenToPage(Vec(boundaryFrame.origin))
+        let bottomRight = engine.screenToPage(Vec(CGPoint(x: boundaryFrame.maxX, y: boundaryFrame.maxY)))
+        engine.pageLimits = Box(topLeft.x, topLeft.y, bottomRight.x - topLeft.x, bottomRight.y - topLeft.y)
+    }
+
     private func pointer(at location: CGPoint) -> PointerInfo {
         let flags = NSEvent.modifierFlags
         let screenPoint = Vec(location)
@@ -359,6 +371,7 @@ final class AnnotationEditorModel {
     func beginInteraction(at location: CGPoint, imageFrame: CGRect, boundaryFrame: CGRect) {
         guard !isCropping else { return }
         updateViewport(imageFrame: imageFrame)
+        updatePageLimits(boundaryFrame: boundaryFrame)
         // Drawing tools only start on the image (or its canvas), which is all
         // an export contains. A press outside still ends text editing.
         // Selecting is allowed everywhere so edge handles stay reachable.
