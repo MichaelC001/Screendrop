@@ -45,15 +45,15 @@ struct OverlaySettingsPane: View {
 
     var body: some View {
         SettingsPage {
-            Section("Preview Overlay") {
+            Section("Capture Cards") {
                 Picker(selection: $previewPositionRaw) {
                     ForEach(PreviewOverlayPosition.allCases) { position in
                         Text(position.title).tag(position.rawValue)
                     }
                 } label: {
                     SettingsControlLabel(
-                        "Position on screen",
-                        detail: "Where the floating preview cards appear after a capture."
+                        "Screen edge",
+                        detail: "The edge capture cards dock to after a screenshot or recording. Tucked away, they leave a handle there."
                     )
                 }
 
@@ -64,14 +64,14 @@ struct OverlaySettingsPane: View {
                 } label: {
                     SettingsControlLabel(
                         "Auto-close",
-                        detail: "Automatically dismiss a preview after this delay, unless you're using it."
+                        detail: "Dismiss a card after this delay, unless you're using it."
                     )
                 }
 
                 Toggle(isOn: $closeAfterDragging) {
                     SettingsControlLabel(
                         "Close after dragging",
-                        detail: "Dismiss the preview once you drag it out to another app."
+                        detail: "Dismiss a card once you drag it out to another app."
                     )
                 }
                 .toggleStyle(.ink)
