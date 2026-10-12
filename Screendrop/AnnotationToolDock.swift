@@ -6,7 +6,8 @@
 //  bottom of the canvas, where the pointer already is. Tools are grouped by
 //  what they make - shapes, lines, marks, redactions - with hairlines
 //  between groups. The selected tool is inked; it jumps to the next tool
-//  rather than sliding, like every other selection in the app.
+//  rather than sliding, like every other selection in the app. Crop sits
+//  last, and the whole capsule morphs into the crop bar when it is pressed.
 //
 
 import SwiftUI
@@ -14,6 +15,10 @@ import SwiftUI
 struct AnnotationToolDock: View {
     @Bindable var model: AnnotationEditorModel
     let onEditorAction: () -> Void
+    var canCrop = true
+    let onCrop: () -> Void
+    /// Shared with the crop bar, so the dock morphs into it and back.
+    let glass: Namespace.ID
 
     static let height: CGFloat = 44
     static let bottomPadding: CGFloat = 14
@@ -34,8 +39,11 @@ struct AnnotationToolDock: View {
             ForEach(Array(Self.groups.enumerated()), id: \.offset) { index, group in
                 if index > 0 { separator }
                 ForEach(group) { tool in
-                    AnnotationDockToolButton(
-                        tool: tool,
+                    AnnotationDockButton(
+                        systemImage: tool.systemImage,
+                        title: tool.title,
+                        help: tool.shortcutKey.map { "\(tool.helpText) (\($0))" } ?? tool.helpText,
+                        accessibilityHint: tool.helpText,
                         isSelected: model.selectedTool == tool
                     ) {
                         onEditorAction()
@@ -45,10 +53,25 @@ struct AnnotationToolDock: View {
             }
 
             autoRedactMenu
+
+            separator
+
+            AnnotationDockButton(
+                systemImage: "crop",
+                title: "Crop",
+                help: "Crop the screenshot (C)"
+            ) {
+                onEditorAction()
+                onCrop()
+            }
+            .disabled(!canCrop)
         }
         .padding(.horizontal, 5)
         .frame(height: Self.height)
         .glassEffect(.regular, in: .capsule)
+        // The crop bar's inked Crop button carries the same ID, so the dock
+        // folds into it, and grows back out of it.
+        .glassEffectID(GlassCropBar.applyID, in: glass)
         .motion(.morphQuick, value: model.selectedTool)
     }
 
@@ -98,16 +121,19 @@ struct AnnotationToolDock: View {
     }
 }
 
-private struct AnnotationDockToolButton: View {
-    let tool: AnnotationTool
-    let isSelected: Bool
+private struct AnnotationDockButton: View {
+    let systemImage: String
+    let title: String
+    let help: String
+    var accessibilityHint = ""
+    var isSelected = false
     let action: () -> Void
 
     @State private var isHovering = false
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: tool.systemImage)
+            Image(systemName: systemImage)
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(isSelected ? Palette.onAccent : Palette.label)
                 .frame(width: 34, height: 34)
@@ -122,15 +148,10 @@ private struct AnnotationDockToolButton: View {
         .focusEffectDisabled()
         .onHover { isHovering = $0 }
         .motion(.morphQuick, value: isHovering)
-        .help(helpText)
-        .accessibilityLabel(tool.title)
-        .accessibilityHint(tool.helpText)
+        .help(help)
+        .accessibilityLabel(title)
+        .accessibilityHint(accessibilityHint)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
-    }
-
-    private var helpText: String {
-        guard let key = tool.shortcutKey else { return tool.helpText }
-        return "\(tool.helpText) (\(key))"
     }
 }
 

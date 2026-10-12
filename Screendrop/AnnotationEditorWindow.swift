@@ -16,6 +16,9 @@ struct AnnotationEditorWindow: View {
     @State private var wallpaperStore = AnnotationWallpaperStore.shared
     @State private var backgroundPresetStore = AnnotationBackgroundPresetStore.shared
     @State private var isInspectorPresented = true
+    /// The tool dock and the crop bar share glass, so one morphs into the
+    /// other.
+    @Namespace private var toolbarGlass
     @State private var isFinishing = false
     @State private var isSaving = false
     @State private var isUploading = false
@@ -116,18 +119,11 @@ struct AnnotationEditorWindow: View {
 
     // MARK: Toolbar actions
 
-    /// Crop, Save and the inspector toggle - the same three Studio shows.
-    /// Everything that finishes or shares the screenshot lives in the
-    /// inspector's footer.
+    /// Save and the inspector toggle. Crop lives at the end of the tool
+    /// dock, which morphs into the crop bar; everything that finishes or
+    /// shares the screenshot lives in the inspector's footer.
     @ViewBuilder
     private var toolbarActions: some View {
-        Button(action: enterCrop) {
-            Label("Crop", systemImage: "crop")
-                .labelStyle(.titleAndIcon)
-        }
-        .help("Crop the screenshot")
-        .disabled(model.previewImage == nil || model.imageSize == .zero || model.isCropping || isBusy)
-
         Button(action: saveEdits) {
             Label(saveFlash ? "Saved" : "Save", systemImage: saveFlash ? "checkmark" : "square.and.arrow.down")
                 .labelStyle(.iconOnly)
@@ -250,25 +246,32 @@ struct AnnotationEditorWindow: View {
                     .transition(.rise)
                 }
 
-                if model.isCropping {
-                    GlassCropBar(
-                        aspect: model.cropAspect,
-                        onAspectChange: { aspect in
-                            clearInspectorFocus()
-                            withAnimation(.morphIfAllowed) { model.setCropAspect(aspect) }
-                        },
-                        onReset: {
-                            clearInspectorFocus()
-                            withAnimation(.morphIfAllowed) { model.resetCrop() }
-                        },
-                        onCancel: exitCrop,
-                        onApply: applyCropAction
-                    )
-                    .frame(height: AnnotationToolDock.height)
-                    .transition(.rise)
-                } else {
-                    AnnotationToolDock(model: model, onEditorAction: clearInspectorFocus)
-                        .transition(.rise)
+                GlassEffectContainer(spacing: GlassMetrics.containerSpacing) {
+                    if model.isCropping {
+                        GlassCropBar(
+                            aspect: model.cropAspect,
+                            onAspectChange: { aspect in
+                                clearInspectorFocus()
+                                withAnimation(.morphIfAllowed) { model.setCropAspect(aspect) }
+                            },
+                            onReset: {
+                                clearInspectorFocus()
+                                withAnimation(.morphIfAllowed) { model.resetCrop() }
+                            },
+                            onCancel: exitCrop,
+                            onApply: applyCropAction,
+                            namespace: toolbarGlass
+                        )
+                        .frame(height: AnnotationToolDock.height)
+                    } else {
+                        AnnotationToolDock(
+                            model: model,
+                            onEditorAction: clearInspectorFocus,
+                            canCrop: !isBusy,
+                            onCrop: enterCrop,
+                            glass: toolbarGlass
+                        )
+                    }
                 }
             }
         }
