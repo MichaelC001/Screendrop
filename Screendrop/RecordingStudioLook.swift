@@ -2,173 +2,13 @@
 //  RecordingStudioLook.swift
 //  Screendrop
 //
-//  The pieces of Studio's Look page: the Styles strip, whose tiles are
-//  drawn from the recording’s own frame, and the one-line background row that
-//  opens the full picker, previewing a fill on the video while the pointer
-//  rests on it.
+//  Studio's Styles strip, whose tiles are drawn from the recording’s own
+//  frame.
 //
 
 import AppKit
 import AVFoundation
 import SwiftUI
-
-extension AnnotationBackgroundStyle {
-    var displayTitle: String {
-        switch self {
-        case .none: "None"
-        case .solid(let color): color.title
-        case .gradient(let gradient): gradient.title
-        case .customWallpaper(let wallpaper): wallpaper.title
-        }
-    }
-}
-
-/// A background drawn small: the fill itself, or a quiet empty well for none.
-struct StudioBackgroundSwatch: View {
-    let style: AnnotationBackgroundStyle
-
-    var body: some View {
-        switch style {
-        case .none:
-            Rectangle()
-                .fill(Color.primary.opacity(0.06))
-                .overlay {
-                    Image(systemName: "slash.circle")
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundStyle(.tertiary)
-                }
-        case .solid(let color):
-            Rectangle().fill(color.color)
-        case .gradient(let gradient):
-            Rectangle().fill(LinearGradient(
-                colors: gradient.colors.map(\.color),
-                startPoint: gradient.startPoint,
-                endPoint: gradient.endPoint
-            ))
-        case .customWallpaper(let wallpaper):
-            AnnotationCustomWallpaperPreview(wallpaper: wallpaper, maxPixelSize: 320)
-        }
-    }
-}
-
-// MARK: - Background
-
-/// The background as one row: its swatch and name. The full picker opens
-/// beside the inspector, over the canvas, so hovering a fill shows it on
-/// the video right there.
-struct StudioBackgroundRow: View {
-    @Bindable var model: RecordingStudioModel
-    @Bindable var wallpaperStore: AnnotationWallpaperStore
-    let onPickWallpaper: () -> Void
-
-    @State private var isPickerPresented = false
-    @State private var isHovering = false
-
-    var body: some View {
-        Button {
-            isPickerPresented = true
-        } label: {
-            HStack(spacing: 8) {
-                StudioBackgroundSwatch(style: model.style.background)
-                    .frame(width: 26, height: 18)
-                    .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 4, style: .continuous)
-                            .strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.5)
-                    }
-
-                Text(model.style.background.displayTitle)
-                    .font(.inspectorValue)
-                    .foregroundStyle(.primary.opacity(0.85))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-
-                Spacer(minLength: 4)
-
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 8, weight: .semibold))
-                    .foregroundStyle(.tertiary)
-            }
-            .padding(.leading, 7)
-            .padding(.trailing, 10)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .inspectorField()
-            .overlay {
-                if isHovering || isPickerPresented {
-                    RoundedRectangle(cornerRadius: InspectorMetrics.fieldRadius, style: .continuous)
-                        .fill(InspectorControlPalette.hoverFill)
-                }
-            }
-        }
-        .buttonStyle(.plain)
-        .onHover { isHovering = $0 }
-        .help("Choose a background")
-        .accessibilityLabel("Background")
-        .accessibilityValue(model.style.background.displayTitle)
-        .popover(isPresented: $isPickerPresented, arrowEdge: .leading) {
-            StudioBackgroundPicker(
-                model: model,
-                wallpaperStore: wallpaperStore,
-                onPickWallpaper: {
-                    isPickerPresented = false
-                    onPickWallpaper()
-                }
-            )
-        }
-    }
-}
-
-/// Every fill in one scrolling popover. Hovering previews on the video;
-/// clicking keeps it; closing without a click leaves the background as it
-/// was.
-private struct StudioBackgroundPicker: View {
-    @Bindable var model: RecordingStudioModel
-    @Bindable var wallpaperStore: AnnotationWallpaperStore
-    let onPickWallpaper: () -> Void
-
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                Text("Background")
-                    .font(.system(size: 13, weight: .semibold))
-                Spacer(minLength: 0)
-                if model.style.background != .none {
-                    Button("None") {
-                        withAnimation(.morphQuickIfAllowed) { model.style.background = .none }
-                    }
-                    .buttonStyle(.plain)
-                    .font(.inspectorValue)
-                    .foregroundStyle(.secondary)
-                    .onHover { model.previewBackground(.none, isHovering: $0) }
-                    .help("Remove the background")
-                }
-            }
-            .padding(.horizontal, 14)
-            .frame(height: 44)
-
-            ScrollView(.vertical) {
-                InspectorBackgroundFillPicker(
-                    style: $model.style.background,
-                    rememberedWallpaper: nil,
-                    wallpaperStore: wallpaperStore,
-                    onEditorAction: {},
-                    onPickWallpaper: onPickWallpaper,
-                    stacked: true,
-                    onPreview: { style, isHovering in
-                        model.previewBackground(style, isHovering: isHovering)
-                    }
-                )
-                .padding(.horizontal, 14)
-                .padding(.bottom, 14)
-            }
-            .scrollEdgeEffectSoftIfAvailable()
-        }
-        .frame(width: 320, height: 520)
-        .background(Palette.panel)
-        .presentationBackground(Palette.panel)
-        .onDisappear { model.previewBackground = nil }
-    }
-}
 
 // MARK: - Styles
 
@@ -433,7 +273,7 @@ struct StudioStylePreview: View {
                 : CGSize(width: available.width, height: available.width / aspect)
 
             ZStack {
-                StudioBackgroundSwatch(style: style.background)
+                BackgroundSwatch(style: style.background)
 
                 Group {
                     if let poster {

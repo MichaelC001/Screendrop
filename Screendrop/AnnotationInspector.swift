@@ -52,28 +52,48 @@ struct AnnotationEditorInspector: View {
 
                 InspectorGroupBreak()
 
+                InspectorSection("Canvas") {
+                    InspectorSegmented(
+                        options: AnnotationBackgroundAspectRatio.allCases,
+                        isSelected: { $0 == model.backgroundSettings.aspectRatio },
+                        onTap: { ratio in
+                            onEditorAction()
+                            model.backgroundSettings.aspectRatio = ratio
+                        },
+                        label: { ratio in
+                            Text(ratio.title)
+                                .font(.inspectorSegment)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.8)
+                        }
+                    )
+                }
+
                 InspectorSection(
-                    "Background",
+                    "Frame",
                     accessory: {
-                        if model.backgroundSettings.style != .none {
-                            InspectorClearButton(help: "Remove background") {
-                                onEditorAction()
-                                withAnimation(.morphQuick) {
-                                    model.backgroundSettings.style = .none
-                                }
+                        if !usesDefaultFrame {
+                            sectionResetButton("Reset padding, corners, shadow and alignment") {
+                                let defaults = AnnotationBackgroundSettings()
+                                model.backgroundSettings.padding = defaults.padding
+                                model.backgroundSettings.cornerRadius = defaults.cornerRadius
+                                model.backgroundSettings.shadow = defaults.shadow
+                                model.backgroundSettings.shadowStyle = defaults.shadowStyle
+                                model.backgroundSettings.alignment = defaults.alignment
                             }
-                            .transition(.blurPop)
                         }
                     }
                 ) {
-                    AnnotationBackgroundInspector(
+                    AnnotationFrameInspector(
                         settings: Binding(
                             get: { model.backgroundSettings },
                             set: { model.backgroundSettings = $0 }
                         ),
                         wallpaperStore: wallpaperStore,
                         onEditorAction: onEditorAction,
-                        onPickWallpaper: onPickWallpaper
+                        onPickWallpaper: onPickWallpaper,
+                        onPreview: { model.previewBackground($0, isHovering: $1) },
+                        onEndPreview: { model.previewBackground = nil }
                     )
                 }
 
@@ -215,6 +235,16 @@ struct AnnotationEditorInspector: View {
             maxHeight: .infinity,
             alignment: .topLeading
         )
+    }
+
+    private var usesDefaultFrame: Bool {
+        let settings = model.backgroundSettings
+        let defaults = AnnotationBackgroundSettings()
+        return settings.padding == defaults.padding
+            && settings.cornerRadius == defaults.cornerRadius
+            && settings.shadow == defaults.shadow
+            && settings.shadowStyle == defaults.shadowStyle
+            && settings.alignment == defaults.alignment
     }
 
     private var sidebarBackground: Color {

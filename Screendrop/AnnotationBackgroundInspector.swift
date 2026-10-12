@@ -20,71 +20,67 @@ private enum AnnotationBackgroundFillLibrary: CaseIterable, Hashable {
     }
 }
 
-struct AnnotationBackgroundInspector: View {
+/// The card on its background: the fill as one row that opens the full
+/// picker, then padding, corners, shadow and alignment.
+struct AnnotationFrameInspector: View {
     @Binding var settings: AnnotationBackgroundSettings
     @Bindable var wallpaperStore: AnnotationWallpaperStore
     let onEditorAction: () -> Void
     let onPickWallpaper: () -> Void
+    let onPreview: (AnnotationBackgroundStyle, Bool) -> Void
+    let onEndPreview: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: InspectorMetrics.groupSpacing) {
-            InspectorBackgroundFillPicker(
+        VStack(alignment: .leading, spacing: InspectorMetrics.rowSpacing) {
+            InspectorBackgroundRow(
                 style: $settings.style,
                 rememberedWallpaper: settings.customWallpaper,
                 wallpaperStore: wallpaperStore,
                 onEditorAction: onEditorAction,
                 onPickWallpaper: onPickWallpaper,
-                onSelectWallpaper: { settings.customWallpaper = $0 }
+                onSelectWallpaper: { settings.customWallpaper = $0 },
+                onPreview: onPreview,
+                onEndPreview: onEndPreview
             )
 
-            innerDivider
-
-            VStack(alignment: .leading, spacing: InspectorMetrics.groupLabelSpacing) {
-                InspectorGroupLabel("Layout")
-
-                InspectorFieldPair {
-                    InspectorSlider(
-                        "Padding",
-                        value: $settings.padding,
-                        range: 0.04...0.45,
-                        format: .percent()
-                    )
-                } trailing: {
-                    InspectorSlider(
-                        "Corners",
-                        value: $settings.cornerRadius,
-                        range: 0...0.12,
-                        format: .percent()
-                    )
-                }
-            }
-
-            VStack(alignment: .leading, spacing: InspectorMetrics.groupLabelSpacing) {
-                InspectorGroupLabel("Shadow")
-
+            InspectorFieldPair {
                 InspectorSlider(
-                    "Amount",
-                    value: $settings.shadow,
-                    range: 0...1,
+                    "Padding",
+                    value: $settings.padding,
+                    range: 0.04...0.45,
                     format: .percent()
                 )
-
-                InspectorSegmented(
-                    options: AnnotationShadowStyle.allCases,
-                    isSelected: { $0 == settings.shadowStyle },
-                    onTap: {
-                        onEditorAction()
-                        settings.shadowStyle = $0
-                    },
-                    label: { style in
-                        Text(style.title)
-                            .font(.inspectorSegment)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.8)
-                    }
+            } trailing: {
+                InspectorSlider(
+                    "Corners",
+                    value: $settings.cornerRadius,
+                    range: 0...0.12,
+                    format: .percent()
                 )
-                .opacity(settings.shadow > 0 ? 1 : 0.45)
             }
+
+            InspectorSlider(
+                "Shadow",
+                value: $settings.shadow,
+                range: 0...1,
+                format: .percent()
+            )
+
+            InspectorSegmented(
+                options: AnnotationShadowStyle.allCases,
+                isSelected: { $0 == settings.shadowStyle },
+                onTap: {
+                    onEditorAction()
+                    settings.shadowStyle = $0
+                },
+                label: { style in
+                    Text(style.title)
+                        .font(.inspectorSegment)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                }
+            )
+            .opacity(settings.shadow > 0 ? 1 : 0.45)
 
             InspectorRow("Alignment") {
                 AlignmentPositionPicker(
@@ -94,41 +90,184 @@ struct AnnotationBackgroundInspector: View {
                 )
                 .frame(maxWidth: .infinity, alignment: .trailing)
             }
-
-            VStack(alignment: .leading, spacing: InspectorMetrics.groupLabelSpacing) {
-                InspectorGroupLabel("Aspect ratio")
-
-                InspectorSegmented(
-                    options: AnnotationBackgroundAspectRatio.allCases,
-                    isSelected: { $0 == settings.aspectRatio },
-                    onTap: {
-                        onEditorAction()
-                        settings.aspectRatio = $0
-                    },
-                    label: { ratio in
-                        Text(ratio.title)
-                            .font(.inspectorSegment)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.8)
-                    }
-                )
-            }
         }
     }
+}
 
-    private var innerDivider: some View {
-        Rectangle()
-            .fill(Color(nsColor: .separatorColor).opacity(0.4))
-            .frame(height: 0.5)
-            .padding(.vertical, 2)
+extension AnnotationBackgroundStyle {
+    var displayTitle: String {
+        switch self {
+        case .none: "None"
+        case .solid(let color): color.title
+        case .gradient(let gradient): gradient.title
+        case .customWallpaper(let wallpaper): wallpaper.title
+        }
+    }
+}
+
+/// A background drawn small: the fill itself, or a quiet empty well for none.
+struct BackgroundSwatch: View {
+    let style: AnnotationBackgroundStyle
+
+    var body: some View {
+        switch style {
+        case .none:
+            Rectangle()
+                .fill(Color.primary.opacity(0.06))
+                .overlay {
+                    Image(systemName: "slash.circle")
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundStyle(.tertiary)
+                }
+        case .solid(let color):
+            Rectangle().fill(color.color)
+        case .gradient(let gradient):
+            Rectangle().fill(LinearGradient(
+                colors: gradient.colors.map(\.color),
+                startPoint: gradient.startPoint,
+                endPoint: gradient.endPoint
+            ))
+        case .customWallpaper(let wallpaper):
+            AnnotationCustomWallpaperPreview(wallpaper: wallpaper, maxPixelSize: 320)
+        }
+    }
+}
+
+/// The background as one row in both editors: its swatch and name. The full
+/// picker opens beside the inspector, over the canvas, so hovering a fill
+/// shows it on the content right there.
+struct InspectorBackgroundRow: View {
+    @Binding var style: AnnotationBackgroundStyle
+    var rememberedWallpaper: AnnotationCustomWallpaper? = nil
+    @Bindable var wallpaperStore: AnnotationWallpaperStore
+    var onEditorAction: () -> Void = {}
+    let onPickWallpaper: () -> Void
+    var onSelectWallpaper: (AnnotationCustomWallpaper) -> Void = { _ in }
+    /// A fill the pointer enters (true) or leaves (false).
+    let onPreview: (AnnotationBackgroundStyle, Bool) -> Void
+    /// The picker closed: drop any preview.
+    let onEndPreview: () -> Void
+
+    @State private var isPickerPresented = false
+    @State private var isHovering = false
+
+    var body: some View {
+        Button {
+            onEditorAction()
+            isPickerPresented = true
+        } label: {
+            HStack(spacing: 8) {
+                BackgroundSwatch(style: style)
+                    .frame(width: 26, height: 18)
+                    .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 4, style: .continuous)
+                            .strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.5)
+                    }
+
+                Text(style.displayTitle)
+                    .font(.inspectorValue)
+                    .foregroundStyle(.primary.opacity(0.85))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+
+                Spacer(minLength: 4)
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 8, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.leading, 7)
+            .padding(.trailing, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .inspectorField()
+            .overlay {
+                if isHovering || isPickerPresented {
+                    RoundedRectangle(cornerRadius: InspectorMetrics.fieldRadius, style: .continuous)
+                        .fill(InspectorControlPalette.hoverFill)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
+        .help("Choose a background")
+        .accessibilityLabel("Background")
+        .accessibilityValue(style.displayTitle)
+        .popover(isPresented: $isPickerPresented, arrowEdge: .leading) {
+            BackgroundPickerPopover(
+                style: $style,
+                rememberedWallpaper: rememberedWallpaper,
+                wallpaperStore: wallpaperStore,
+                onPickWallpaper: {
+                    isPickerPresented = false
+                    onPickWallpaper()
+                },
+                onSelectWallpaper: onSelectWallpaper,
+                onPreview: onPreview,
+                onEndPreview: onEndPreview
+            )
+        }
+    }
+}
+
+/// Every fill in one scrolling popover. Hovering previews; clicking keeps
+/// it; closing without a click leaves the background as it was.
+private struct BackgroundPickerPopover: View {
+    @Binding var style: AnnotationBackgroundStyle
+    let rememberedWallpaper: AnnotationCustomWallpaper?
+    @Bindable var wallpaperStore: AnnotationWallpaperStore
+    let onPickWallpaper: () -> Void
+    let onSelectWallpaper: (AnnotationCustomWallpaper) -> Void
+    let onPreview: (AnnotationBackgroundStyle, Bool) -> Void
+    let onEndPreview: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 8) {
+                Text("Background")
+                    .font(.system(size: 13, weight: .semibold))
+                Spacer(minLength: 0)
+                if style != .none {
+                    Button("None") {
+                        onEndPreview()
+                        withAnimation(.morphQuickIfAllowed) { style = .none }
+                    }
+                    .buttonStyle(.plain)
+                    .font(.inspectorValue)
+                    .foregroundStyle(.secondary)
+                    .onHover { onPreview(.none, $0) }
+                    .help("Remove the background")
+                }
+            }
+            .padding(.horizontal, 14)
+            .frame(height: 44)
+
+            ScrollView(.vertical) {
+                InspectorBackgroundFillPicker(
+                    style: $style,
+                    rememberedWallpaper: rememberedWallpaper,
+                    wallpaperStore: wallpaperStore,
+                    onEditorAction: {},
+                    onPickWallpaper: onPickWallpaper,
+                    onSelectWallpaper: onSelectWallpaper,
+                    onPreview: onPreview
+                )
+                .padding(.horizontal, 14)
+                .padding(.bottom, 14)
+            }
+            .scrollEdgeEffectSoftIfAvailable()
+        }
+        .frame(width: 320, height: 520)
+        .background(Palette.panel)
+        .presentationBackground(Palette.panel)
+        .onDisappear(perform: onEndPreview)
     }
 }
 
 /// The background fill browser shared by the annotator and Studio: Color,
 /// Gradient and Wallpaper tile grids, with recent wallpapers, built-in packs
-/// and an add tile. In the annotator's crowded inspector the three libraries
-/// sit behind glass tabs; where a page has the height (`stacked`), they are
-/// laid out one under another with no switch at all.
+/// and an add tile, laid out one under another. Both editors show it in a
+/// popover from their background row.
 struct InspectorBackgroundFillPicker: View {
     @Binding var style: AnnotationBackgroundStyle
     /// A wallpaper to keep visible in Recent even when the fill is currently
@@ -138,8 +277,6 @@ struct InspectorBackgroundFillPicker: View {
     let onEditorAction: () -> Void
     let onPickWallpaper: () -> Void
     var onSelectWallpaper: (AnnotationCustomWallpaper) -> Void = { _ in }
-    /// Shows every library at once instead of switching between them.
-    var stacked = false
     /// Called as the pointer enters (true) and leaves (false) a fill, so a
     /// host can show it before it is picked.
     var onPreview: ((AnnotationBackgroundStyle, Bool) -> Void)? = nil
@@ -149,55 +286,23 @@ struct InspectorBackgroundFillPicker: View {
     /// three-column wallpaper grid.
     private static let maxVisibleRecentWallpapers = 5
     private let wallpaperColumns = Array(repeating: GridItem(.flexible(), spacing: 7), count: 3)
-    @State private var selectedWallpaperSourceID = AnnotationWallpaperSource.recentID
-    @State private var selectedFillLibrary = AnnotationBackgroundFillLibrary.color
-    /// Packs unfolded past their first row in the stacked layout.
+    /// Packs unfolded past their first row.
     @State private var expandedPackIDs: Set<String> = []
 
     var body: some View {
-        if stacked {
-            VStack(alignment: .leading, spacing: InspectorMetrics.groupSpacing) {
-                ForEach(AnnotationBackgroundFillLibrary.allCases, id: \.self) { library in
-                    if library == .wallpaper {
-                        // Wallpapers bring their own labels: Recent and
-                        // each pack.
-                        unfoldedWallpaperGroup
-                    } else {
-                        VStack(alignment: .leading, spacing: InspectorMetrics.groupLabelSpacing) {
-                            InspectorGroupLabel(library.title)
-                            fillPicker(for: library)
-                        }
+        VStack(alignment: .leading, spacing: InspectorMetrics.groupSpacing) {
+            ForEach(AnnotationBackgroundFillLibrary.allCases, id: \.self) { library in
+                if library == .wallpaper {
+                    // Wallpapers bring their own labels: Recent and each
+                    // pack.
+                    unfoldedWallpaperGroup
+                } else {
+                    VStack(alignment: .leading, spacing: InspectorMetrics.groupLabelSpacing) {
+                        InspectorGroupLabel(library.title)
+                        fillPicker(for: library)
                     }
                 }
             }
-        } else {
-            tabbedBody
-        }
-    }
-
-    private var tabbedBody: some View {
-        VStack(alignment: .leading, spacing: InspectorMetrics.rowSpacing) {
-            SegmentedTabs(
-                options: AnnotationBackgroundFillLibrary.allCases.map { ($0.title, $0) },
-                selection: Binding(
-                    get: { selectedFillLibrary },
-                    set: { library in
-                        withAnimation(.morphQuickIfAllowed) {
-                            selectedFillLibrary = library
-                        }
-                    }
-                )
-            )
-
-            fillPicker(for: selectedFillLibrary)
-                .id(selectedFillLibrary)
-                .transition(AnyTransition(.blurReplace))
-        }
-        .onAppear {
-            syncFillLibrary(with: style)
-        }
-        .onChange(of: style) { _, style in
-            syncFillLibrary(with: style)
         }
     }
 
@@ -243,53 +348,16 @@ struct InspectorBackgroundFillPicker: View {
             }
 
         case .wallpaper:
-            wallpaperGroup
+            EmptyView()
         }
     }
 
-    private func syncFillLibrary(with style: AnnotationBackgroundStyle) {
-        switch style {
-        case .none:
-            break
-        case .solid:
-            selectedFillLibrary = .color
-        case .gradient:
-            selectedFillLibrary = .gradient
-        case .customWallpaper:
-            selectedFillLibrary = .wallpaper
-        }
-    }
-
-    @ViewBuilder
-    private var wallpaperGroup: some View {
-        VStack(alignment: .leading, spacing: InspectorMetrics.groupLabelSpacing) {
-            SegmentedTabs(
-                options: wallpaperSources.map { ($0.title, $0.id) },
-                selection: Binding(
-                    get: { selectedWallpaperSourceID },
-                    set: { id in
-                        onEditorAction()
-                        withAnimation(.morphQuickIfAllowed) {
-                            selectedWallpaperSourceID = id
-                        }
-                    }
-                )
-            )
-
-            if selectedWallpaperSourceID == AnnotationWallpaperSource.recentID {
-                recentWallpaperGrid
-            } else if let pack = selectedPack {
-                packContent(pack)
-            }
-        }
-    }
-
-    /// Every wallpaper source laid out in turn - Recent, then each pack under
-    /// its own label - for the stacked layout.
+    /// Every wallpaper source laid out in turn: Recent, then each pack under
+    /// its own label.
     private var unfoldedWallpaperGroup: some View {
         VStack(alignment: .leading, spacing: InspectorMetrics.groupSpacing) {
             VStack(alignment: .leading, spacing: InspectorMetrics.groupLabelSpacing) {
-                InspectorGroupLabel(AnnotationWallpaperSourceOption.recent.title)
+                InspectorGroupLabel("Recent")
                 recentWallpaperGrid
             }
 
@@ -353,17 +421,6 @@ struct InspectorBackgroundFillPicker: View {
         }
 
         AnnotationWallpaperCreditView(pack: pack)
-    }
-
-    private var wallpaperSources: [AnnotationWallpaperSourceOption] {
-        [AnnotationWallpaperSourceOption.recent]
-        + AnnotationWallpaperPack.builtIn.map { pack in
-            AnnotationWallpaperSourceOption(id: pack.id, title: pack.title)
-        }
-    }
-
-    private var selectedPack: AnnotationWallpaperPack? {
-        AnnotationWallpaperPack.builtIn.first { $0.id == selectedWallpaperSourceID }
     }
 
     private var visibleRecentWallpapers: [AnnotationCustomWallpaper] {
@@ -578,20 +635,6 @@ struct AnnotationWatermarkInspector: View {
         onFocusCleared()
     }
 
-}
-
-private enum AnnotationWallpaperSource {
-    static let recentID = "recent"
-}
-
-private struct AnnotationWallpaperSourceOption: Identifiable, Hashable {
-    let id: String
-    let title: String
-
-    static let recent = AnnotationWallpaperSourceOption(
-        id: AnnotationWallpaperSource.recentID,
-        title: "Recent"
-    )
 }
 
 private struct AnnotationAddWallpaperTile: View {

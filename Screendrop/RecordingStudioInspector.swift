@@ -150,10 +150,12 @@ struct StudioInspector: View {
             }
         ) {
             VStack(alignment: .leading, spacing: InspectorMetrics.rowSpacing) {
-                StudioBackgroundRow(
-                    model: model,
+                InspectorBackgroundRow(
+                    style: $model.style.background,
                     wallpaperStore: wallpaperStore,
-                    onPickWallpaper: pickWallpaper
+                    onPickWallpaper: pickWallpaper,
+                    onPreview: { model.previewBackground($0, isHovering: $1) },
+                    onEndPreview: { model.previewBackground = nil }
                 )
                 frameControls
             }
