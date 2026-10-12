@@ -84,7 +84,7 @@ struct MenuBarView: View {
             Button {
                 updaterManager.checkForUpdates()
             } label: {
-                Label("Check for Updates...", systemImage: "arrow.down.circle")
+                Label("Check for Updates…", systemImage: "arrow.down.circle")
             }
             .disabled(!updaterManager.canCheckForUpdates)
             
@@ -204,7 +204,7 @@ struct MenuBarView: View {
         let baseName = url.deletingPathExtension().lastPathComponent
         let allowedBaseLength = max(8, limit - suffix.count - 3)
 
-        return "\(baseName.prefix(allowedBaseLength))...\(suffix)"
+        return "\(baseName.prefix(allowedBaseLength))…\(suffix)"
     }
 
     /// Menus get unusably wide with full session names, which carry a
