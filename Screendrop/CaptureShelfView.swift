@@ -207,10 +207,10 @@ private struct CaptureShelfHandle: View {
         .frame(width: isHovered || dragTop != nil ? 30 : 24, height: Self.height)
         .contentShape(Rectangle())
         .glassEffect(.regular.interactive(), in: handleShape)
-        // A drag only begins once the pointer moves, so a click still opens
-        // the shelf.
-        .gesture(drag)
-        .onTapGesture(perform: action)
+        // One gesture handles both, so a click whose pointer wobbles a
+        // little on a trackpad still opens the shelf instead of being lost
+        // between a tap and a drag.
+        .gesture(pressAndDrag)
         .pointerStyle(dragTop == nil ? .grabIdle : .grabActive)
         .padding(isLeft ? .leading : .trailing, 3)
         .onHover { isHovered = $0 }
@@ -224,16 +224,24 @@ private struct CaptureShelfHandle: View {
         .accessibilityAction { action() }
     }
 
-    private var drag: some Gesture {
-        DragGesture(minimumDistance: 3, coordinateSpace: .global)
+    /// Movement under which a press is still a click.
+    private static let clickSlop: CGFloat = 6
+
+    private var pressAndDrag: some Gesture {
+        DragGesture(minimumDistance: 0, coordinateSpace: .global)
             .onChanged { value in
                 let start = dragStartTop ?? restingTop
                 dragStartTop = start
+                guard dragTop != nil || value.translation.isBeyond(Self.clickSlop) else { return }
                 dragTop = min(max(start + value.translation.height, Self.margin), Self.margin + travel)
             }
             .onEnded { _ in
-                if let dragTop, travel > 0 {
-                    position = Double((dragTop - Self.margin) / travel)
+                if let dragTop {
+                    if travel > 0 {
+                        position = Double((dragTop - Self.margin) / travel)
+                    }
+                } else {
+                    action()
                 }
                 dragTop = nil
                 dragStartTop = nil
@@ -250,5 +258,11 @@ private struct CaptureShelfHandle: View {
             topTrailingRadius: isLeft ? inner : outer,
             style: .continuous
         )
+    }
+}
+
+private extension CGSize {
+    func isBeyond(_ distance: CGFloat) -> Bool {
+        width * width + height * height > distance * distance
     }
 }
