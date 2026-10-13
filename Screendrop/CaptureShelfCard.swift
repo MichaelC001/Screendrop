@@ -2,12 +2,16 @@
 //  CaptureShelfCard.swift
 //  Screendrop
 //
-//  One capture on the shelf. At rest it is just the picture. On hover it dims
-//  and shows the actions placed on it in Settings → Overlay: one glass button
-//  in each corner and up to three labelled ones in the middle. While it is
-//  busy (compressing, preparing a recording, uploading) or has just finished
-//  something, that state takes the actions' place. Every action is also in
-//  its context menu, and it drags out as a file.
+//  One capture on the shelf. At rest it is just the picture. On hover it
+//  frosts and shows the actions placed on it in Settings → Overlay: a round
+//  button in each corner and up to three equal-width labelled ones in the
+//  middle. While it is busy (compressing, preparing a recording, uploading)
+//  or has just finished something, that state takes the actions' place.
+//  Every action is also in its context menu, and it drags out as a file.
+//
+//  The controls are solid light chips rather than the app's glass: they sit
+//  on arbitrary screenshot content, where a fixed light-on-frost contrast
+//  reads better than anything that follows the system appearance.
 //
 
 import AppKit
@@ -30,9 +34,11 @@ struct CaptureShelfCard: View {
             .resizable()
             .aspectRatio(contentMode: .fill)
             .frame(width: CaptureShelfMetrics.cardSize.width, height: CaptureShelfMetrics.cardSize.height)
-            .overlay { overlay.environment(\.colorScheme, .dark) }
+            // Frosted under the controls, so they read on any screenshot.
+            .blur(radius: isFrosted ? 6 : 0, opaque: true)
+            .overlay { overlay }
             .clipShape(shape)
-            .overlay { shape.strokeBorder(.white.opacity(0.22), lineWidth: 1) }
+            .overlay { shape.strokeBorder(Palette.strongHairline, lineWidth: 1) }
             // Flatten before the shadow, so the rounded clip and the stroke
             // move as one layer while the card slides.
             .compositingGroup()
@@ -72,6 +78,9 @@ struct CaptureShelfCard: View {
     private var isUploading: Bool { uploader.uploadingItems.contains(item.id) }
     private var uploadedLink: String? { uploader.uploadedURLs[item.id] }
     private var showsActions: Bool { isHovered && !isDragging }
+    private var isFrosted: Bool {
+        showsActions || item.activity != nil || isUploading || item.flash != nil
+    }
 
     // MARK: Overlay
 
@@ -91,9 +100,10 @@ struct CaptureShelfCard: View {
         } else if item.kind == .video {
             Image(systemName: "play.fill")
                 .font(.system(size: 9, weight: .bold))
-                .foregroundStyle(.white)
+                .foregroundStyle(.black.opacity(0.85))
                 .frame(width: 22, height: 22)
-                .glassEffect(.regular, in: .circle)
+                .background(.white.opacity(0.92), in: .circle)
+                .shadow(color: .black.opacity(0.2), radius: 2, y: 1)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
                 .padding(8)
                 .transition(.opacity)
@@ -102,7 +112,7 @@ struct CaptureShelfCard: View {
 
     private func status<Icon: View>(_ title: String, @ViewBuilder icon: () -> Icon) -> some View {
         ZStack {
-            scrim
+            scrim(0.38)
             VStack(spacing: 7) {
                 icon()
                 Text(title)
@@ -134,7 +144,7 @@ struct CaptureShelfCard: View {
 
     private var uploadProgress: some View {
         ZStack {
-            scrim
+            scrim(0.38)
             VStack(spacing: 9) {
                 Text("Uploading")
                     .font(.system(size: 12, weight: .semibold))
@@ -153,8 +163,11 @@ struct CaptureShelfCard: View {
         .transition(.opacity)
     }
 
-    private var scrim: some View {
-        Rectangle().fill(.black.opacity(0.42))
+    /// Darkens the frosted picture a little: lightly under the controls,
+    /// more under status text. The same in light and dark mode, because it
+    /// sits on the screenshot, not on the window.
+    private func scrim(_ opacity: Double) -> some View {
+        Rectangle().fill(.black.opacity(opacity))
     }
 
     // MARK: Actions
@@ -162,18 +175,22 @@ struct CaptureShelfCard: View {
     private var actions: some View {
         let layout = layoutStore.layout
         return ZStack {
-            scrim
+            scrim(0.16)
             corner(layout.topLeading, .topLeading)
             corner(layout.topTrailing, .topTrailing)
             corner(layout.bottomLeading, .bottomLeading)
             corner(layout.bottomTrailing, .bottomTrailing)
 
-            VStack(spacing: 5) {
+            VStack(spacing: 6) {
                 ForEach(layout.center.filter(isAvailable)) { action in
-                    GlassCapsuleButton(title: centerTitle(for: action), height: 24) {
+                    ShelfChipButton(help: action.help(for: item.kind), width: Self.centerButtonWidth) {
                         perform(action)
+                    } label: {
+                        Text(centerTitle(for: action))
+                            .font(.system(size: 12.5, weight: .semibold))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
                     }
-                    .help(action.help(for: item.kind))
                 }
             }
         }
@@ -191,8 +208,15 @@ struct CaptureShelfCard: View {
     }
 
     private func cornerButton(_ systemImage: String, help: String, action: @escaping () -> Void) -> some View {
-        GlassIconButton(systemImage: systemImage, help: help, size: 24, symbolSize: 10, action: action)
+        ShelfChipButton(help: help, width: 26, action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 10.5, weight: .bold))
+        }
     }
+
+    /// Every middle button is this wide whatever its label, so a column of
+    /// them lines up however the layout is customised.
+    private static let centerButtonWidth: CGFloat = 88
 
     private func isAvailable(_ action: OverlayCardAction) -> Bool {
         switch action {
@@ -265,5 +289,37 @@ struct CaptureShelfCard: View {
         Button(isImage ? "Delete Screenshot" : "Delete Recording", role: .destructive) {
             shelf.delete(id: id)
         }
+    }
+}
+
+/// A solid light control over the frosted card: a circle when its width
+/// matches its height, a capsule otherwise. Light on any screenshot, so it
+/// stays the same in dark mode.
+private struct ShelfChipButton<Label: View>: View {
+    let help: String
+    let width: CGFloat
+    let action: () -> Void
+    @ViewBuilder let label: () -> Label
+
+    @State private var isHovered = false
+
+    private var height: CGFloat { width <= 30 ? width : 28 }
+
+    var body: some View {
+        Button(action: action) {
+            label()
+                .foregroundStyle(.black.opacity(0.85))
+                .padding(.horizontal, width <= 30 ? 0 : 8)
+                .frame(width: width, height: height)
+                .background(.white.opacity(isHovered ? 1 : 0.88), in: Capsule())
+                .shadow(color: .black.opacity(0.18), radius: 3, y: 1)
+                .scaleEffect(isHovered ? 1.04 : 1)
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+        .motion(.morphQuick, value: isHovered)
+        .help(help)
+        .accessibilityLabel(help)
     }
 }
