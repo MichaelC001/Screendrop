@@ -475,6 +475,18 @@ final class BarControlHoverView: NSView {
     /// Restores the arrow only if no other control claimed the hand in the
     /// same turn - sliding along the bar exits one control and enters the
     /// next, and the arrow must not blink in between.
+    /// Puts the pointing hand back if a control still owns it. The bar's
+    /// hosting view calls this after layout and on cursor updates: AppKit
+    /// resets the pointer to an arrow while views resize under it, and a
+    /// pointer that isn't moving would otherwise never get the hand back.
+    static func reassertHand() {
+        guard handOwner != nil else { return }
+        DispatchQueue.main.async {
+            guard handOwner != nil else { return }
+            NSCursor.pointingHand.set()
+        }
+    }
+
     private func releaseHand() {
         guard Self.handOwner === self else { return }
         Self.handOwner = nil

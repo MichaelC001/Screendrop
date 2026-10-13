@@ -51,6 +51,7 @@ final class RecordingBarPresenter {
     // MARK: Teleprompter
 
     func toggleTeleprompter() {
+        holdPointerThroughMorph()
         withAnimation(BarMetrics.modeChange) { isTeleprompterOpen.toggle() }
         // Typing goes to the key window; the panel is nonactivating, so
         // this never activates Screendrop.
@@ -59,7 +60,25 @@ final class RecordingBarPresenter {
 
     func closeTeleprompter() {
         guard isTeleprompterOpen else { return }
+        holdPointerThroughMorph()
         withAnimation(BarMetrics.modeChange) { isTeleprompterOpen = false }
+    }
+
+    @ObservationIgnored private var pointerHoldTask: Task<Void, Never>?
+
+    /// While the bar changes shape under a resting pointer, AppKit keeps
+    /// resetting it to an arrow and no mouse move arrives to correct it.
+    /// For the length of the morph, the control under the pointer keeps its
+    /// hand every frame.
+    private func holdPointerThroughMorph() {
+        pointerHoldTask?.cancel()
+        pointerHoldTask = Task {
+            for _ in 0..<30 {
+                BarControlHoverView.reassertHand()
+                try? await Task.sleep(for: .milliseconds(16))
+                guard !Task.isCancelled else { return }
+            }
+        }
     }
 
     // MARK: Picker
@@ -101,6 +120,7 @@ final class RecordingBarPresenter {
 
         let isMorphing = panel.isVisible && isPositioned(panel, onDisplayID: displayID)
         if isMorphing {
+            holdPointerThroughMorph()
             withAnimation(BarMetrics.modeChange) {
                 mode = .recording
                 isTeleprompterOpen = false
@@ -277,6 +297,19 @@ private final class RecordingBarPanel: NSPanel {
 private final class RecordingBarHostingView<Content: View>: NSHostingView<Content> {
     override var isOpaque: Bool {
         false
+    }
+
+    /// The bar resizes under a resting pointer when it morphs or unfolds the
+    /// teleprompter, and AppKit answers each pass with an arrow. A control
+    /// that owns the pointing hand takes it back.
+    override func layout() {
+        super.layout()
+        BarControlHoverView.reassertHand()
+    }
+
+    override func cursorUpdate(with event: NSEvent) {
+        super.cursorUpdate(with: event)
+        BarControlHoverView.reassertHand()
     }
 
     /// The panel is much larger than the bar - fixed size, so a morph never
