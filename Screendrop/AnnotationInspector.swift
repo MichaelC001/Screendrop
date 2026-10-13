@@ -50,13 +50,15 @@ struct AnnotationEditorInspector: View {
                     onEditorAction: onEditorAction
                 )
 
-                // Always present so selecting or deselecting annotations never
-                // shifts the sections below.
-                InspectorSection("Annotation") {
-                    styleControls
-                }
+                // Only while a styled tool is picked or an annotation is
+                // selected; with nothing to style it would be filler.
+                if model.hasInspectorStyleControls {
+                    InspectorSection("Annotation") {
+                        styleControls
+                    }
 
-                InspectorGroupBreak()
+                    InspectorGroupBreak()
+                }
 
                 InspectorSection("Canvas") {
                     InspectorSegmented(
@@ -286,53 +288,46 @@ struct AnnotationEditorInspector: View {
 
     @ViewBuilder
     private var styleControls: some View {
-        if !model.hasInspectorStyleControls {
-            Text("Pick a tool from the dock, or select an annotation, to change its style.")
+        if model.selectionCount > 1 {
+            Text("\(model.selectionCount) annotations selected")
                 .font(.inspectorLabel)
                 .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+        }
+
+        if model.isTextStyleAvailable {
+            AnnotationTextStyleControls(model: model)
         } else {
-            if model.selectionCount > 1 {
-                Text("\(model.selectionCount) annotations selected")
-                    .font(.inspectorLabel)
-                    .foregroundStyle(.secondary)
+            if model.isColorStyleAvailable {
+                InspectorRow("Color") {
+                    AnnotationSwatchStrip(selectedSwatch: model.selectedSwatch) { swatch in
+                        onEditorAction()
+                        model.setSwatch(swatch)
+                    }
+                }
             }
 
-            if model.isTextStyleAvailable {
-                AnnotationTextStyleControls(model: model)
-            } else {
-                if model.isColorStyleAvailable {
-                    InspectorRow("Color") {
-                        AnnotationSwatchStrip(selectedSwatch: model.selectedSwatch) { swatch in
-                            onEditorAction()
-                            model.setSwatch(swatch)
-                        }
+            if model.isStrokeStyleAvailable {
+                InspectorRow("Stroke") {
+                    AnnotationStrokePicker(strokeWidth: model.strokeWidth) { strokeWidth in
+                        onEditorAction()
+                        model.setStrokeWidth(strokeWidth)
                     }
                 }
+            }
 
-                if model.isStrokeStyleAvailable {
-                    InspectorRow("Stroke") {
-                        AnnotationStrokePicker(strokeWidth: model.strokeWidth) { strokeWidth in
+            if model.isRedactionStyleAvailable {
+                InspectorSlider(
+                    "Strength",
+                    value: Binding(
+                        get: { model.redactionDensity },
+                        set: {
                             onEditorAction()
-                            model.setStrokeWidth(strokeWidth)
+                            model.setRedactionDensity($0)
                         }
-                    }
-                }
-
-                if model.isRedactionStyleAvailable {
-                    InspectorSlider(
-                        "Strength",
-                        value: Binding(
-                            get: { model.redactionDensity },
-                            set: {
-                                onEditorAction()
-                                model.setRedactionDensity($0)
-                            }
-                        ),
-                        range: 0.15...1,
-                        format: .percent()
-                    )
-                }
+                    ),
+                    range: 0.15...1,
+                    format: .percent()
+                )
             }
         }
     }
