@@ -9,9 +9,9 @@
 //  or has just finished something, that state takes the actions' place.
 //  Every action is also in its context menu, and it drags out as a file.
 //
-//  The controls are solid light chips rather than the app's glass: they sit
-//  on arbitrary screenshot content, where a fixed light-on-frost contrast
-//  reads better than anything that follows the system appearance.
+//  The controls are always light Liquid Glass with dark glyphs: they sit on
+//  arbitrary screenshot content, where a fixed light-on-frost contrast reads
+//  better than glass that follows the system appearance.
 //
 
 import AppKit
@@ -189,7 +189,7 @@ struct CaptureShelfCard: View {
                         perform(action)
                     } label: {
                         Text(centerTitle(for: action))
-                            .font(.system(size: 12.5, weight: .semibold))
+                            .font(.system(size: 12, weight: .semibold))
                             .lineLimit(1)
                             .minimumScaleFactor(0.75)
                     }
@@ -218,7 +218,7 @@ struct CaptureShelfCard: View {
 
     /// Every middle button is this wide whatever its label, so a column of
     /// them lines up however the layout is customised.
-    private static let centerButtonWidth: CGFloat = 88
+    private static let centerButtonWidth: CGFloat = 80
 
     private func isAvailable(_ action: OverlayCardAction) -> Bool {
         switch action {
@@ -294,33 +294,29 @@ struct CaptureShelfCard: View {
     }
 }
 
-/// A solid light control over the frosted card: a circle when its width
-/// matches its height, a capsule otherwise. Light on any screenshot, so it
-/// stays the same in dark mode.
+/// A Liquid Glass control over the frosted card: a circle when its width
+/// matches its height, a capsule otherwise. Always light glass with dark
+/// glyphs, because it sits on the screenshot rather than the window.
 private struct ShelfChipButton<Label: View>: View {
     let help: String
     let width: CGFloat
     let action: () -> Void
     @ViewBuilder let label: () -> Label
 
-    @State private var isHovered = false
-
-    private var height: CGFloat { width <= 30 ? width : 28 }
+    private var isCircle: Bool { width <= 30 }
+    private var height: CGFloat { isCircle ? width : 26 }
 
     var body: some View {
         Button(action: action) {
             label()
                 .foregroundStyle(.black.opacity(0.85))
-                .padding(.horizontal, width <= 30 ? 0 : 8)
+                .padding(.horizontal, isCircle ? 0 : 8)
                 .frame(width: width, height: height)
-                .background(.white.opacity(isHovered ? 1 : 0.88), in: Capsule())
-                .shadow(color: .black.opacity(0.18), radius: 3, y: 1)
-                .scaleEffect(isHovered ? 1.04 : 1)
                 .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .onHover { isHovered = $0 }
-        .motion(.morphQuick, value: isHovered)
+        .glassEffect(.regular.interactive(), in: Capsule())
+        .environment(\.colorScheme, .light)
         .help(help)
         .accessibilityLabel(help)
     }
