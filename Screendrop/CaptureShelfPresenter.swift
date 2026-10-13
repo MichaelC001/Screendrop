@@ -197,6 +197,12 @@ private final class CaptureShelfHostingView<Content: View>: NSHostingView<Conten
         fatalError("init(coder:) has not been implemented")
     }
 
+    /// The panel is non-activating and usually not key. Without this the
+    /// first click on it only makes it key, and SwiftUI never sees the
+    /// press: the handle needed a second click, and when the panel could
+    /// not become key it never opened at all.
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
     override func scrollWheel(with event: NSEvent) {
         guard event.hasPreciseScrollingDeltas, event.momentumPhase.isEmpty else { return }
         if event.phase == .began {
