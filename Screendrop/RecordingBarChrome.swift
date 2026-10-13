@@ -39,7 +39,14 @@ enum BarMetrics {
     /// rounded rect animates. Wide enough for the widest mode plus the room a
     /// tooltip needs beyond the end controls.
     static let panelWidth: CGFloat = 760
-    static var panelHeight: CGFloat { BarTooltip.reservedHeight + height + bottomSlack }
+    /// Tall enough for the teleprompter to unfold above the bar without the
+    /// window ever resizing.
+    static var panelHeight: CGFloat {
+        BarTooltip.reservedHeight + RecordingBarTeleprompter.height + height + bottomSlack
+    }
+    /// The bar's radius while the teleprompter is open: a taller island
+    /// takes a rounder corner.
+    static let expandedCornerRadius: CGFloat = 22
 
     /// The bar's surface is Liquid Glass, which brings its own fill and
     /// shadow. These are the marks drawn on top of it.

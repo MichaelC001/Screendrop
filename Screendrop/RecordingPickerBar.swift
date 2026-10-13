@@ -105,7 +105,7 @@ struct RecordingPickerControls: View {
                     ? "Teleprompter on - click to edit the script"
                     : "Teleprompter off - click to write a script"
             ) {
-                TeleprompterComposerPresenter.shared.toggle()
+                RecordingBarPresenter.shared.toggleTeleprompter()
             }
 
             timerMenu
@@ -216,7 +216,7 @@ struct RecordingPickerControls: View {
     /// actually begins. The warm camera preview (if any) is left running so it
     /// flows straight into the recording instead of restarting and refading.
     private func startRecording(_ start: () -> Void) {
-        TeleprompterComposerPresenter.shared.hide()
+        RecordingBarPresenter.shared.closeTeleprompter()
         start()
     }
 

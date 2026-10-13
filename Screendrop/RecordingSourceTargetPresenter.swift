@@ -116,12 +116,12 @@ final class RecordingSourceTargetPresenter {
         case let .display(displayID):
             guard let display = sources.displays.first(where: { $0.displayID == displayID }) else { return }
             cancel()
-            TeleprompterComposerPresenter.shared.hide()
+            RecordingBarPresenter.shared.closeTeleprompter()
             CaptureCoordinator.shared.recordFullscreen(display)
         case let .window(windowID):
             guard let window = sources.windows.first(where: { $0.windowID == windowID }) else { return }
             cancel()
-            TeleprompterComposerPresenter.shared.hide()
+            RecordingBarPresenter.shared.closeTeleprompter()
             CaptureCoordinator.shared.recordWindow(window)
         }
     }

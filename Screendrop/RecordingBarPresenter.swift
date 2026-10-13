@@ -26,6 +26,9 @@ final class RecordingBarPresenter {
     }
 
     private(set) var mode: Mode = .picker
+    /// Whether the bar is unfolded into the teleprompter's script editor.
+    /// Picker mode only.
+    private(set) var isTeleprompterOpen = false
 
     /// The bar's frame inside the panel's content view, reported by SwiftUI.
     /// The panel is deliberately much larger than the bar, so this is what
@@ -44,6 +47,20 @@ final class RecordingBarPresenter {
     @ObservationIgnored private var panel: NSPanel?
 
     private init() {}
+
+    // MARK: Teleprompter
+
+    func toggleTeleprompter() {
+        withAnimation(BarMetrics.modeChange) { isTeleprompterOpen.toggle() }
+        // Typing goes to the key window; the panel is nonactivating, so
+        // this never activates Screendrop.
+        if isTeleprompterOpen { panel?.makeKey() }
+    }
+
+    func closeTeleprompter() {
+        guard isTeleprompterOpen else { return }
+        withAnimation(BarMetrics.modeChange) { isTeleprompterOpen = false }
+    }
 
     // MARK: Picker
 
@@ -80,16 +97,17 @@ final class RecordingBarPresenter {
     func showRecording(displayID: CGDirectDisplayID?) {
         let panel = panel ?? makePanel()
         PreviewWindowCaptureExclusion.shared.register(window: panel)
-        TeleprompterComposerPresenter.shared.hide()
         RecordingSourceTargetPresenter.shared.cancel()
 
         let isMorphing = panel.isVisible && isPositioned(panel, onDisplayID: displayID)
         if isMorphing {
             withAnimation(BarMetrics.modeChange) {
                 mode = .recording
+                isTeleprompterOpen = false
             }
         } else {
             mode = .recording
+            isTeleprompterOpen = false
             position(panel, displayID: displayID)
         }
         panel.orderFrontRegardless()
@@ -103,11 +121,10 @@ final class RecordingBarPresenter {
         // bar hides has to be ended by hand - it holds the pointing hand.
         BarControlHoverView.endActiveHover()
         panel?.orderOut(nil)
-        // The composer only makes sense floating above the bar.
-        TeleprompterComposerPresenter.shared.hide()
-        // Next appearance should always start as the picker, and without
-        // animating out of a mode nobody can see.
+        // Next appearance should always start as the folded picker, and
+        // without animating out of a mode nobody can see.
         mode = .picker
+        isTeleprompterOpen = false
     }
 
     func containsScreenPoint(_ point: CGPoint) -> Bool {
@@ -120,9 +137,8 @@ final class RecordingBarPresenter {
 
     // MARK: Geometry
 
-    /// Where the bar currently sits on screen, so satellite windows (the
-    /// teleprompter composer) can anchor to it even after the user drags it
-    /// around. This is the visible bar, not the panel: the panel is padded
+    /// Where the bar currently sits on screen, so satellite windows can
+    /// anchor to it even after the user drags it around. This is the visible bar, not the panel: the panel is padded
     /// out with transparent slack for the tooltips and shadows, and anchoring
     /// to that would leave satellites floating clear of the bar.
     var barFrame: CGRect? {
@@ -242,6 +258,11 @@ private final class RecordingBarPanel: NSPanel {
         // Escape backs out of picking a source; it must not abandon a
         // recording that's already running.
         guard RecordingBarPresenter.shared.mode == .picker else { return }
+        // The open teleprompter folds away first.
+        if RecordingBarPresenter.shared.isTeleprompterOpen {
+            RecordingBarPresenter.shared.closeTeleprompter()
+            return
+        }
         // First Esc puts away the point-to-pick sheet; the next one closes
         // the bar.
         if RecordingSourceTargetPresenter.shared.isActive {
@@ -277,6 +298,9 @@ private final class RecordingBarHostingView<Content: View>: NSHostingView<Conten
 private struct RecordingBarView: View {
     @State private var presenter = RecordingBarPresenter.shared
     @State private var tooltip = BarTooltipModel()
+    /// The control row's width, which the teleprompter matches so opening
+    /// it grows the bar upward only.
+    @State private var rowWidth: CGFloat = 0
     @AppStorage(ScreendropPreferences.includeAppWindowsInCapturesKey)
     private var includeAppWindowsInCaptures = false
 
@@ -297,7 +321,48 @@ private struct RecordingBarView: View {
             }
     }
 
+    private var showsTeleprompter: Bool {
+        presenter.mode == .picker && presenter.isTeleprompterOpen
+    }
+
     private var bar: some View {
+        VStack(spacing: 0) {
+            if showsTeleprompter {
+                RecordingBarTeleprompter()
+                    .frame(width: rowWidth)
+                    .transition(.opacity)
+            }
+
+            controlRow
+        }
+        // Clipped to the same shape the glass takes, so a morph reveals and
+        // hides content behind the moving edge instead of letting it spill.
+        .clipShape(barShape)
+        .glassEffect(.regular, in: barShape)
+        .overlay {
+            barShape.strokeBorder(BarMetrics.edge, lineWidth: 0.5)
+        }
+        .background(alignment: .bottom) {
+            if presenter.mode == .picker && includeAppWindowsInCaptures {
+                visibilityBanner
+                    .padding(.horizontal, BarMetrics.visibilityBannerInset)
+                    .offset(y: BarMetrics.visibilityBannerHeight - BarMetrics.visibilityBannerOverlap)
+            }
+        }
+        // The tooltip rides on the control row, outside the clip, so it
+        // floats just above the controls whether or not the bar is unfolded.
+        .overlay(alignment: .bottom) {
+            tooltipLayer.frame(height: BarMetrics.height)
+        }
+        // Satellite windows anchor to the bar itself, excluding the reminder.
+        .onGeometryChange(for: CGRect.self) {
+            $0.frame(in: .named(BarCoordinateSpace.panel))
+        } action: {
+            presenter.barFrameInPanel = $0
+        }
+    }
+
+    private var controlRow: some View {
         HStack(spacing: 0) {
             // The controls fill the bar edge to edge, so the background never
             // shows to drag by; the grip is somewhere to take hold of it.
@@ -320,29 +385,8 @@ private struct RecordingBarView: View {
         .padding(.leading, 2)
         .padding(.trailing, BarMetrics.horizontalPadding)
         .frame(height: BarMetrics.height)
-        // Clipped to the same shape the glass takes, so a morph reveals and
-        // hides the controls behind the narrowing edge instead of letting
-        // them spill past it.
-        .clipShape(barShape)
-        .glassEffect(.regular, in: barShape)
-        .overlay {
-            barShape.strokeBorder(BarMetrics.edge, lineWidth: 0.5)
-        }
-        .background(alignment: .bottom) {
-            if presenter.mode == .picker && includeAppWindowsInCaptures {
-                visibilityBanner
-                    .padding(.horizontal, BarMetrics.visibilityBannerInset)
-                    .offset(y: BarMetrics.visibilityBannerHeight - BarMetrics.visibilityBannerOverlap)
-            }
-        }
         .coordinateSpace(.named(BarCoordinateSpace.bar))
-        .overlay(tooltipLayer)
-        // Satellite windows anchor to the bar itself, excluding the reminder.
-        .onGeometryChange(for: CGRect.self) {
-            $0.frame(in: .named(BarCoordinateSpace.panel))
-        } action: {
-            presenter.barFrameInPanel = $0
-        }
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { rowWidth = $0 }
     }
 
     private var visibilityBanner: some View {
@@ -405,6 +449,9 @@ private struct RecordingBarView: View {
     }
 
     private var barShape: RoundedRectangle {
-        RoundedRectangle(cornerRadius: BarMetrics.cornerRadius, style: .continuous)
+        RoundedRectangle(
+            cornerRadius: showsTeleprompter ? BarMetrics.expandedCornerRadius : BarMetrics.cornerRadius,
+            style: .continuous
+        )
     }
 }
