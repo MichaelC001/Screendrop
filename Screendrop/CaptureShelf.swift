@@ -360,8 +360,15 @@ final class CaptureShelf {
         dismiss(id: id)
     }
 
+    /// Whether an editor has this capture open. It can't be deleted then,
+    /// or the editor would be left saving into a file that is gone.
+    func isOpenInEditor(id: ShelfItem.ID) -> Bool {
+        guard let item = item(id: id) else { return false }
+        return CaptureLibraryOpenEditors.isEditing(item.url)
+    }
+
     func delete(id: ShelfItem.ID) {
-        guard let item = item(id: id) else { return }
+        guard let item = item(id: id), !isOpenInEditor(id: id) else { return }
         if !ScreenshotHistoryStore.shared.delete(url: item.url) {
             deleteFile(at: item.url)
         }

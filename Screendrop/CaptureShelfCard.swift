@@ -185,7 +185,7 @@ struct CaptureShelfCard: View {
 
             VStack(spacing: 6) {
                 ForEach(layout.center.filter(isAvailable)) { action in
-                    ShelfChipButton(help: action.help(for: item.kind), width: Self.centerButtonWidth) {
+                    ShelfChipButton(help: centerHelp(for: action), width: Self.centerButtonWidth) {
                         perform(action)
                     } label: {
                         Text(centerTitle(for: action))
@@ -193,6 +193,7 @@ struct CaptureShelfCard: View {
                             .lineLimit(1)
                             .minimumScaleFactor(0.75)
                     }
+                    .disabled(isBlocked(action))
                 }
             }
         }
@@ -204,6 +205,7 @@ struct CaptureShelfCard: View {
             cornerButton(cornerSymbol(for: action), help: cornerHelp(for: action)) {
                 perform(action)
             }
+            .disabled(isBlocked(action))
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: alignment)
             .padding(7)
         }
@@ -233,8 +235,20 @@ struct CaptureShelfCard: View {
     }
 
     private func cornerHelp(for action: OverlayCardAction) -> String {
-        action == .upload && uploadedLink != nil ? "Copy share link" : action.help(for: item.kind)
+        if isBlocked(action) { return Self.deleteBlockedHelp }
+        return action == .upload && uploadedLink != nil ? "Copy share link" : action.help(for: item.kind)
     }
+
+    private func centerHelp(for action: OverlayCardAction) -> String {
+        isBlocked(action) ? Self.deleteBlockedHelp : action.help(for: item.kind)
+    }
+
+    /// Delete waits while the capture is open in an editor.
+    private func isBlocked(_ action: OverlayCardAction) -> Bool {
+        action == .delete && shelf.isOpenInEditor(id: item.id)
+    }
+
+    private static let deleteBlockedHelp = "Close its editor to delete it"
 
     private func centerTitle(for action: OverlayCardAction) -> String {
         action == .upload && uploadedLink != nil ? "Copy Link" : action.label(for: item.kind)
@@ -291,6 +305,7 @@ struct CaptureShelfCard: View {
         Button(isImage ? "Delete Screenshot" : "Delete Recording", role: .destructive) {
             shelf.delete(id: id)
         }
+        .disabled(shelf.isOpenInEditor(id: id))
     }
 }
 
@@ -305,6 +320,7 @@ private struct ShelfChipButton<Label: View>: View {
     @ViewBuilder let label: () -> Label
 
     @State private var isHovered = false
+    @Environment(\.isEnabled) private var isEnabled
 
     private var isCircle: Bool { width <= 30 }
     private var height: CGFloat { isCircle ? width : 26 }
@@ -312,12 +328,12 @@ private struct ShelfChipButton<Label: View>: View {
     var body: some View {
         Button(action: action) {
             label()
-                .foregroundStyle(.black.opacity(0.85))
+                .foregroundStyle(.black.opacity(isEnabled ? 0.85 : 0.3))
                 .padding(.horizontal, isCircle ? 0 : 8)
                 .frame(width: width, height: height)
-                .background(.white.opacity(isHovered ? 1 : 0.88), in: Capsule())
+                .background(.white.opacity(isEnabled ? (isHovered ? 1 : 0.88) : 0.6), in: Capsule())
                 .shadow(color: .black.opacity(0.18), radius: 3, y: 1)
-                .scaleEffect(isHovered ? 1.04 : 1)
+                .scaleEffect(isHovered && isEnabled ? 1.04 : 1)
                 .contentShape(Capsule())
         }
         .buttonStyle(.plain)
