@@ -247,15 +247,6 @@ struct BarActionLabel: View {
             .animation(.easeOut(duration: 0.12), value: isHovering)
             .animation(.easeOut(duration: 0.12), value: isSelected)
             .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-            // One of two cursor paths, for the two states the bar lives in.
-            // While Screendrop is the active app the system's pointer-style
-            // engine owns the cursor and enforces the declared style against
-            // any NSCursor.set - so the style has to be declared. It resolves
-            // against the key window, which is why the presenter makes the
-            // panel key when showing it. While Screendrop is inactive the
-            // engine doesn't consult it at all and BarControlHover's NSCursor
-            // path takes over.
-            .pointerStyle(isEnabled ? .link : nil)
             .onGeometryChange(for: CGRect.self) {
                 $0.frame(in: .named(BarCoordinateSpace.bar))
             } action: {
@@ -346,10 +337,10 @@ enum BarCoordinateSpace {
 }
 
 /// The single source of hover for a bar control: one of these sits behind
-/// every `BarActionLabel`, and the cursor, the puck and the tooltip are all
-/// driven from it - a control that renders at all gets all three.
+/// every `BarActionLabel`, and the puck and the tooltip are both driven
+/// from it - a control that renders at all gets both.
 ///
-/// It's an AppKit tracking area rather than `.onHover`/`.pointerStyle`
+/// It's an AppKit tracking area rather than `.onHover`
 /// because those resolve against the active app and the key window, and this
 /// bar floats in a `.nonactivatingPanel` over whatever is being recorded - it
 /// is usually neither. A tracking area marked `.activeAlways` is delivered
@@ -371,13 +362,18 @@ struct BarControlHover: NSViewRepresentable {
     }
 
     /// A morph tears controls down under a pointer that never left the bar;
-    /// the hover has to end with the view or the hand would outlive its
-    /// button.
+    /// the hover has to end with the view or its puck would linger.
     static func dismantleNSView(_ view: BarControlHoverView, coordinator: ()) {
         view.endHover()
     }
 }
 
+/// Tracks hover for a bar control, so its puck shows while Screendrop is in
+/// the background (the whole of a recording). It only observes: the click
+/// belongs to the SwiftUI control it sits behind, and the pointer is left
+/// to AppKit. Bar controls keep the arrow like any native toolbar; a
+/// pointing hand pushed by hand had to be re-pushed after every layout and
+/// flickered whenever the bar changed shape.
 final class BarControlHoverView: NSView {
     var onChange: ((Bool) -> Void)?
     var isTrackingEnabled = true {
@@ -390,20 +386,16 @@ final class BarControlHoverView: NSView {
 
     private var isHovering = false
 
-    /// The one control, at most, whose hover currently owns the pointing
-    /// hand. Class-level because the claim has to be handed over atomically
-    /// when the pointer slides from one control to the next.
-    private static weak var handOwner: BarControlHoverView?
+    /// The control currently hovered, at most one.
+    private static weak var hovered: BarControlHoverView?
 
     /// For the bar's owner to call when it hides the panel: `orderOut`
-    /// removes the window without exit events, and a hover that ends
-    /// off screen must still put the arrow back and clear its puck.
+    /// removes the window without exit events, and a hover that ends off
+    /// screen must still clear its puck.
     static func endActiveHover() {
-        handOwner?.endHover()
+        hovered?.endHover()
     }
 
-    /// Purely an observer - the click belongs to the SwiftUI control this
-    /// sits behind.
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
     override func updateTrackingAreas() {
@@ -424,10 +416,8 @@ final class BarControlHoverView: NSView {
         beginHover()
     }
 
-    /// Re-claimed on every move, not just on entry: entry can be missed (the
-    /// bar appearing under a stationary pointer) and the claim can be undone
-    /// (anything that reset the cursor since the last move). Claiming again
-    /// is free.
+    /// Entry can be missed when the bar appears under a resting pointer;
+    /// the first move catches up.
     override func mouseMoved(with event: NSEvent) {
         beginHover()
     }
@@ -444,56 +434,17 @@ final class BarControlHoverView: NSView {
     }
 
     private func beginHover() {
-        guard isTrackingEnabled else { return }
-        claimHand()
-        guard !isHovering else { return }
+        guard isTrackingEnabled, !isHovering else { return }
         isHovering = true
+        Self.hovered = self
         onChange?(true)
     }
 
     func endHover() {
-        releaseHand()
         guard isHovering else { return }
         isHovering = false
+        if Self.hovered === self { Self.hovered = nil }
         onChange?(false)
-    }
-
-    /// The set is deferred one turn of the run loop on purpose. Everything
-    /// that fights for the cursor - AppKit's cursor-rect management while the
-    /// app is active, the hosting view's own tracking - reasserts the arrow
-    /// *during* the event's dispatch, so a cursor set inline is overwritten
-    /// before the user sees it. One set after the turn outlives them all, and
-    /// it's re-run on every subsequent move.
-    private func claimHand() {
-        Self.handOwner = self
-        DispatchQueue.main.async { [weak self] in
-            guard let self, Self.handOwner === self else { return }
-            NSCursor.pointingHand.set()
-        }
-    }
-
-    /// Restores the arrow only if no other control claimed the hand in the
-    /// same turn - sliding along the bar exits one control and enters the
-    /// next, and the arrow must not blink in between.
-    /// Puts the pointing hand back if a control still owns it. The bar's
-    /// hosting view calls this after layout and on cursor updates: AppKit
-    /// resets the pointer to an arrow while views resize under it, and a
-    /// pointer that isn't moving would otherwise never get the hand back.
-    static func reassertHand() {
-        guard handOwner != nil else { return }
-        DispatchQueue.main.async {
-            guard handOwner != nil else { return }
-            NSCursor.pointingHand.set()
-        }
-    }
-
-    private func releaseHand() {
-        guard Self.handOwner === self else { return }
-        Self.handOwner = nil
-        DispatchQueue.main.async {
-            guard Self.handOwner == nil else { return }
-            NSCursor.arrow.set()
-        }
     }
 }
 
@@ -531,9 +482,8 @@ private struct BarDragHandleRegion: NSViewRepresentable {
     func updateNSView(_ nsView: BarDragHandleView, context: Context) {}
 }
 
-/// Takes the press and hands it to the window to drag, and shows the
-/// open hand over the grip. The cursor is set a turn late for the same
-/// reason as `BarControlHoverView`'s pointing hand.
+/// Takes the press and hands it to the window to drag. The open hand comes
+/// from an ordinary cursor rect.
 final class BarDragHandleView: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? {
         bounds.contains(convert(point, from: superview)) ? self : nil
@@ -541,27 +491,13 @@ final class BarDragHandleView: NSView {
 
     override var mouseDownCanMoveWindow: Bool { true }
 
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        for area in trackingAreas { removeTrackingArea(area) }
-        addTrackingArea(NSTrackingArea(
-            rect: .zero,
-            options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect],
-            owner: self
-        ))
+    override func resetCursorRects() {
+        addCursorRect(bounds, cursor: .openHand)
     }
-
-    override func mouseEntered(with event: NSEvent) { setCursor(.openHand) }
-    override func mouseMoved(with event: NSEvent) { setCursor(.openHand) }
-    override func mouseExited(with event: NSEvent) { setCursor(.arrow) }
 
     override func mouseDown(with event: NSEvent) {
-        NSCursor.closedHand.set()
+        NSCursor.closedHand.push()
         window?.performDrag(with: event)
-        setCursor(.openHand)
-    }
-
-    private func setCursor(_ cursor: NSCursor) {
-        DispatchQueue.main.async { cursor.set() }
+        NSCursor.pop()
     }
 }

@@ -89,9 +89,6 @@ struct RecordingBarTeleprompter: View {
             }
         }
         .frame(maxHeight: .infinity)
-        // The bar's panel turns off cursor rects (its controls manage the
-        // pointer themselves), so the text cursor is set by hand here.
-        .overlay { TextCursorRegion() }
     }
 
     private var footer: some View {
@@ -138,52 +135,5 @@ struct RecordingBarTeleprompter: View {
             time = "\(seconds / 60) min \(seconds % 60) s"
         }
         return "\(words) word\(words == 1 ? "" : "s") · about \(time)"
-    }
-}
-
-/// Shows the text cursor over the script. A tracking area rather than
-/// SwiftUI's hover, which can report the hover ending while the bar
-/// unfolds under a pointer that was never over the editor, resetting the
-/// cursor to an arrow on every frame of the animation.
-private struct TextCursorRegion: NSViewRepresentable {
-    func makeNSView(context: Context) -> TextCursorView { TextCursorView() }
-    func updateNSView(_ nsView: TextCursorView, context: Context) {}
-}
-
-private final class TextCursorView: NSView {
-    private var isInside = false
-
-    /// Purely an observer; clicks belong to the text editor beneath.
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        for area in trackingAreas { removeTrackingArea(area) }
-        addTrackingArea(NSTrackingArea(
-            rect: .zero,
-            options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect],
-            owner: self
-        ))
-    }
-
-    override func mouseEntered(with event: NSEvent) {
-        isInside = true
-        setCursor(.iBeam)
-    }
-
-    override func mouseMoved(with event: NSEvent) {
-        guard isInside else { return }
-        setCursor(.iBeam)
-    }
-
-    override func mouseExited(with event: NSEvent) {
-        guard isInside else { return }
-        isInside = false
-        setCursor(.arrow)
-    }
-
-    /// A turn late, so AppKit's own resets during the event don't win.
-    private func setCursor(_ cursor: NSCursor) {
-        DispatchQueue.main.async { cursor.set() }
     }
 }

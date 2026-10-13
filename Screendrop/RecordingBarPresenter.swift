@@ -51,7 +51,6 @@ final class RecordingBarPresenter {
     // MARK: Teleprompter
 
     func toggleTeleprompter() {
-        holdPointerThroughMorph()
         withAnimation(BarMetrics.modeChange) { isTeleprompterOpen.toggle() }
         // Typing goes to the key window; the panel is nonactivating, so
         // this never activates Screendrop.
@@ -60,25 +59,7 @@ final class RecordingBarPresenter {
 
     func closeTeleprompter() {
         guard isTeleprompterOpen else { return }
-        holdPointerThroughMorph()
         withAnimation(BarMetrics.modeChange) { isTeleprompterOpen = false }
-    }
-
-    @ObservationIgnored private var pointerHoldTask: Task<Void, Never>?
-
-    /// While the bar changes shape under a resting pointer, AppKit keeps
-    /// resetting it to an arrow and no mouse move arrives to correct it.
-    /// For the length of the morph, the control under the pointer keeps its
-    /// hand every frame.
-    private func holdPointerThroughMorph() {
-        pointerHoldTask?.cancel()
-        pointerHoldTask = Task {
-            for _ in 0..<30 {
-                BarControlHoverView.reassertHand()
-                try? await Task.sleep(for: .milliseconds(16))
-                guard !Task.isCancelled else { return }
-            }
-        }
     }
 
     // MARK: Picker
@@ -120,8 +101,7 @@ final class RecordingBarPresenter {
 
         let isMorphing = panel.isVisible && isPositioned(panel, onDisplayID: displayID)
         if isMorphing {
-            holdPointerThroughMorph()
-            withAnimation(BarMetrics.modeChange) {
+                withAnimation(BarMetrics.modeChange) {
                 mode = .recording
                 isTeleprompterOpen = false
             }
@@ -138,7 +118,7 @@ final class RecordingBarPresenter {
         if mode == .picker { CaptureCountdownPresenter.shared.cancel() }
         RecordingSourceTargetPresenter.shared.cancel()
         // `orderOut` sends no exit events, so a hover that's live when the
-        // bar hides has to be ended by hand - it holds the pointing hand.
+        // bar hides has to be ended by hand, or its puck would linger.
         BarControlHoverView.endActiveHover()
         panel?.orderOut(nil)
         // Next appearance should always start as the folded picker, and
@@ -233,12 +213,6 @@ final class RecordingBarPresenter {
         // Screendrop is in the background, which is the whole time a recording
         // is running. Their tracking areas need the moved events.
         panel.acceptsMouseMovedEvents = true
-        // Nothing in the bar wants a cursor other than the pointing hand its
-        // controls push. Left on, AppKit's own cursor rectangles reset the
-        // pointer to an arrow on every mouse move the moment Screendrop is
-        // the active app - which it is whenever the picker is opened from
-        // inside the app.
-        panel.disableCursorRects()
         panel.titleVisibility = .hidden
         panel.titlebarAppearsTransparent = true
         PreviewWindowCaptureExclusion.shared.register(window: panel)
@@ -297,19 +271,6 @@ private final class RecordingBarPanel: NSPanel {
 private final class RecordingBarHostingView<Content: View>: NSHostingView<Content> {
     override var isOpaque: Bool {
         false
-    }
-
-    /// The bar resizes under a resting pointer when it morphs or unfolds the
-    /// teleprompter, and AppKit answers each pass with an arrow. A control
-    /// that owns the pointing hand takes it back.
-    override func layout() {
-        super.layout()
-        BarControlHoverView.reassertHand()
-    }
-
-    override func cursorUpdate(with event: NSEvent) {
-        super.cursorUpdate(with: event)
-        BarControlHoverView.reassertHand()
     }
 
     /// The panel is much larger than the bar - fixed size, so a morph never
