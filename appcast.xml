@@ -27,6 +27,43 @@
     -->
 
     <item>
+      <title>Version 0.35.0</title>
+      <sparkle:version>33</sparkle:version>
+      <sparkle:shortVersionString>0.35.0</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.4</sparkle:minimumSystemVersion>
+      <pubDate>Tue, 13 Oct 2026 03:04:16 +0000</pubDate>
+      <description><![CDATA[
+        <h2>What's New in 0.35.0</h2>
+        <ul>
+          <li>A redesign of the whole app on one Liquid Glass design system: Settings, Library, the screenshot editor, Studio and every floating panel now share the same controls, and use your Mac's accent color</li>
+          <li>New capture shelf: cards dock to the screen edge, slide in and out through it, and tuck away into a slim handle you can drag anywhere along the edge, so they never cover an editor's buttons</li>
+          <li>Capture cards frost on hover with clearer, equal-width actions, every action is in the right-click menu, and a card can't delete a capture that is open in an editor</li>
+          <li>Studio's sidebar is rebuilt around one short Look: style thumbnails of your own recording, Canvas, Frame, then one switch per feature</li>
+          <li>Pick a background from a single row: hovering a fill previews it on the video or screenshot before you choose</li>
+          <li>The screenshot editor gets Studio's Styles strip, Canvas and Frame sections, and Crop moves into the tool dock, which morphs into the crop bar</li>
+          <li>Annotations now stay on the image: new shapes, moves, resizes and arrow-key nudges stop at its edge</li>
+          <li>The screenshot editor opens on the Select tool, with a Starting tool setting to change it</li>
+          <li>With the sidebar hidden, Share, Save As and Done move to the toolbar instead of floating over the screenshot</li>
+          <li>The teleprompter is now part of the recording bar: its button unfolds the bar into the script editor, with word count and speaking time</li>
+          <li>The recording bar has a grip to drag it anywhere</li>
+          <li>Improved screen and window picker, video timeline and pinhead, and a speed badge for sped-up clips</li>
+          <li>Inspector sections fold smoothly without bouncing, switches are a normal size, and controls dim when they have no effect</li>
+          <li>Error messages now go away on their own</li>
+          <li>Fixed: the watermark section wouldn't open</li>
+          <li>Fixed: Start Recording couldn't be clicked in the source picker</li>
+          <li>Fixed: saving in the editor could drop a card over it</li>
+          <li>Fixed: the pointer flickering on the recording bar</li>
+        </ul>
+      ]]></description>
+      <enclosure
+        url="https://github.com/fayazara/screendrop/releases/download/v0.35.0/Screendrop.dmg"
+        type="application/octet-stream"
+        sparkle:edSignature="hqHY+y9LbCBMrTWmHEi9CngiCKWQDOZbogZkPArOGDXZgnoc75cHXS1uIUxMP5UxD9fB6wWyRBMf/hZbHBdlCg=="
+        length="7697545"
+      />
+    </item>
+
+    <item>
       <title>Version 0.34.0</title>
       <sparkle:version>32</sparkle:version>
       <sparkle:shortVersionString>0.34.0</sparkle:shortVersionString>
