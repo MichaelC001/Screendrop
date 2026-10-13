@@ -132,6 +132,7 @@ private struct CaptureShelfHeader: View {
                 if isLeft { tuckButton }
 
                 GlassCapsuleButton(title: "Clear All", height: CaptureShelfMetrics.headerHeight, action: onClearAll)
+                    .catchesClicks(in: Capsule())
                     .help("Dismiss \(title.lowercased())")
                     .glassEffectID("clear", in: glass)
 
@@ -151,6 +152,7 @@ private struct CaptureShelfHeader: View {
             symbolSize: 10,
             action: onTuck
         )
+        .catchesClicks(in: Circle())
         .glassEffectID("tuck", in: glass)
     }
 
@@ -207,6 +209,7 @@ private struct CaptureShelfHandle: View {
         .frame(width: isHovered || dragTop != nil ? 30 : 24, height: Self.height)
         .contentShape(Rectangle())
         .glassEffect(.regular.interactive(), in: handleShape)
+        .catchesClicks(in: handleShape)
         // One gesture handles both, so a click whose pointer wobbles a
         // little on a trackpad still opens the shelf instead of being lost
         // between a tap and a drag.
@@ -258,6 +261,19 @@ private struct CaptureShelfHandle: View {
             topTrailingRadius: isLeft ? inner : outer,
             style: .continuous
         )
+    }
+}
+
+private extension View {
+    /// Gives a glass control pixels the window server can hit. The shelf's
+    /// panel is clear, and clicks on its clear pixels fall through to the
+    /// window beneath. On macOS 26 glass is composited outside the window's
+    /// own pixels, so a glass control is clear to the window server and only
+    /// its glyphs caught clicks. A fill too faint to see makes the whole
+    /// shape solid to it.
+    func catchesClicks(in shape: some Shape) -> some View {
+        // Alpha is stored in 8 bits; anything under 1/255 rounds to clear.
+        background(shape.fill(Color.black.opacity(0.01)))
     }
 }
 
