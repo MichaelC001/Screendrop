@@ -48,7 +48,9 @@ final class TeleprompterComposerPresenter {
 
         panel.backgroundColor = .clear
         panel.isOpaque = false
-        panel.hasShadow = true
+        // The glass casts its own shadow; the panel leaves `slack` around it
+        // so that shadow isn't clipped.
+        panel.hasShadow = false
         panel.hidesOnDeactivate = false
         panel.isFloatingPanel = true
         panel.isReleasedWhenClosed = false
@@ -73,10 +75,11 @@ final class TeleprompterComposerPresenter {
     /// falls back to the bar's usual bottom-center spot.
     private func position(_ panel: NSPanel) {
         let size = panel.frame.size
+        let slack = TeleprompterComposerView.slack
         if let barFrame = RecordingPickerPresenter.shared.barFrame {
             panel.setFrameOrigin(CGPoint(
                 x: barFrame.midX - size.width / 2,
-                y: barFrame.maxY + 12
+                y: barFrame.maxY + 10 - slack
             ))
             return
         }
@@ -86,7 +89,7 @@ final class TeleprompterComposerPresenter {
         let visibleFrame = screen?.visibleFrame ?? CGRect(x: 0, y: 0, width: 800, height: 600)
         panel.setFrameOrigin(CGPoint(
             x: visibleFrame.midX - size.width / 2,
-            y: visibleFrame.minY + 126
+            y: visibleFrame.minY + 126 - slack
         ))
     }
 }
@@ -113,26 +116,40 @@ private final class TeleprompterComposerHostingView<Content: View>: NSHostingVie
 
 // MARK: - View
 
+/// The script panel, drawn as part of the recording bar: the same glass,
+/// radius and edge, with the script sitting straight on the glass.
 private struct TeleprompterComposerView: View {
+    /// Clear room around the glass for its shadow.
+    static let slack: CGFloat = 24
+
     @AppStorage(ScreendropPreferences.recordingTeleprompterEnabledKey) private var isEnabled = false
     @AppStorage(ScreendropPreferences.recordingTeleprompterScriptKey) private var script = ""
     @AppStorage(ScreendropPreferences.recordingTeleprompterLineCountKey) private var lineCount = 3
 
+    private var shape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: BarMetrics.cornerRadius, style: .continuous)
+    }
+
     var body: some View {
-        VStack(spacing: 10) {
+        VStack(alignment: .leading, spacing: 0) {
             header
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+
+            Rectangle().fill(Palette.hairline).frame(height: 0.5)
+
             editor
+
+            Rectangle().fill(Palette.hairline).frame(height: 0.5)
+
             footer
+                .padding(.horizontal, 14)
+                .padding(.vertical, 9)
         }
-        .padding(12)
-        .frame(width: 360)
-        .background(Color(white: 0.14).opacity(0.97))
-        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .strokeBorder(.white.opacity(0.14), lineWidth: 1)
-        }
-        .preferredColorScheme(.dark)
+        .frame(width: 380)
+        .glassEffect(.regular, in: shape)
+        .overlay { shape.strokeBorder(BarMetrics.edge, lineWidth: 0.5) }
+        .padding(Self.slack)
         .onChange(of: isEnabled) { _, enabled in
             if enabled {
                 TeleprompterController.shared.preflightAssets()
@@ -141,65 +158,92 @@ private struct TeleprompterComposerView: View {
     }
 
     private var header: some View {
-        HStack(spacing: 8) {
-            Text("Teleprompter")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.white)
+        HStack(alignment: .center, spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Teleprompter")
+                    .font(.dsHeadline)
+                    .foregroundStyle(Palette.label)
+                Text(isEnabled ? "Shown under the notch while you record" : "Turn on to show it under the notch")
+                    .font(.dsCaption)
+                    .foregroundStyle(Palette.secondaryLabel)
+                    .contentTransition(.interpolate)
+            }
 
-            Spacer()
+            Spacer(minLength: 8)
 
             InspectorToggle("Show while recording", isOn: $isEnabled)
                 .help(isEnabled
                     ? "Teleprompter will appear in the notch while recording"
                     : "Turn on to show the script in the notch while recording")
         }
+        .motion(.morphQuick, value: isEnabled)
     }
 
     private var editor: some View {
         ZStack(alignment: .topLeading) {
             TextEditor(text: $script)
                 .font(.system(size: 13))
-                .foregroundStyle(.white)
+                .lineSpacing(3)
+                .foregroundStyle(Palette.label)
                 .scrollContentBackground(.hidden)
-                .padding(6)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 8)
 
             if script.isEmpty {
                 Text("Type or paste your script…")
                     .font(.system(size: 13))
-                    .foregroundStyle(.white.opacity(0.3))
-                    .padding(.top, 6)
-                    .padding(.leading, 11)
+                    .foregroundStyle(Palette.tertiaryLabel)
+                    .padding(.top, 8)
+                    .padding(.leading, 14)
                     .allowsHitTesting(false)
             }
         }
-        .frame(height: 150)
-        .background(Color.white.opacity(0.08))
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .frame(height: 168)
     }
 
     private var footer: some View {
-        HStack(spacing: 8) {
-            Text("Lines shown")
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(.white.opacity(0.6))
+        HStack(spacing: 10) {
+            Text(readingSummary)
+                .font(.dsCaption)
+                .monospacedDigit()
+                .foregroundStyle(Palette.secondaryLabel)
+                .contentTransition(.numericText())
 
-            Spacer()
+            Spacer(minLength: 8)
 
-            ForEach(ScreendropPreferences.teleprompterLineCountRange, id: \.self) { count in
-                Button {
-                    lineCount = count
-                } label: {
+            Text("Lines")
+                .font(.dsCaption)
+                .foregroundStyle(Palette.secondaryLabel)
+
+            InspectorSegmented(
+                options: Array(ScreendropPreferences.teleprompterLineCountRange),
+                isSelected: { $0 == lineCount },
+                onTap: { lineCount = $0 },
+                label: { count in
                     Text("\(count)")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(lineCount == count ? .white : .white.opacity(0.45))
-                        .frame(width: 28, height: 24)
-                        .background(lineCount == count ? Color.white.opacity(0.22) : .clear)
-                        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-                        .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-                }
-                .buttonStyle(.plain)
-                .help("Show \(count) lines in the notch")
-            }
+                        .font(.inspectorSegment)
+                        .monospacedDigit()
+                },
+                height: 26
+            )
+            .frame(width: 128)
+            .help("How many lines the notch shows at once")
         }
+    }
+
+    /// Word count and a rough speaking time, at about 150 words a minute.
+    private var readingSummary: String {
+        let words = script.split { $0.isWhitespace || $0.isNewline }.count
+        guard words > 0 else { return "No script yet" }
+        let seconds = Int((Double(words) / 150 * 60).rounded())
+        let time: String
+        if seconds < 60 {
+            time = "\(max(seconds, 1)) s"
+        } else if seconds % 60 == 0 {
+            time = "\(seconds / 60) min"
+        } else {
+            time = "\(seconds / 60) min \(seconds % 60) s"
+        }
+        return "\(words) word\(words == 1 ? "" : "s") · about \(time)"
     }
 }
