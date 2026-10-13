@@ -170,17 +170,13 @@ struct InspectorSection<Content: View, Accessory: View>: View {
                 content()
                     .padding(.top, InspectorMetrics.headerSpacing)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .transition(
-                        AnyTransition(.blurReplace)
-                            .combined(with: .move(edge: .top))
-                            .combined(with: .opacity)
-                    )
+                    .transition(.opacity)
             }
         }
         .padding(.horizontal, InspectorMetrics.horizontalPadding)
         .padding(.vertical, InspectorMetrics.sectionVerticalPadding / 2 + 3)
         .frame(maxWidth: .infinity, alignment: .leading)
-        // The folding body never paints over the next section mid-spring.
+        // The folding body never paints over the next section mid-fold.
         .clipped()
     }
 
@@ -227,7 +223,7 @@ struct InspectorSection<Content: View, Accessory: View>: View {
                     isOn: Binding(
                         get: { isOn.wrappedValue },
                         set: { value in
-                            withAnimation(reduceMotion ? nil : .morph) { isOn.wrappedValue = value }
+                            withAnimation(reduceMotion ? nil : .fold) { isOn.wrappedValue = value }
                         }
                     )
                 )
@@ -259,7 +255,7 @@ struct InspectorSection<Content: View, Accessory: View>: View {
 
     private func toggleExpansion() {
         guard let isExpanded else { return }
-        withAnimation(reduceMotion ? nil : .morph) {
+        withAnimation(reduceMotion ? nil : .fold) {
             isExpanded.wrappedValue.toggle()
         }
     }

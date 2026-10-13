@@ -20,6 +20,10 @@ extension Animation {
     /// label swaps.
     static let morphQuick = Animation.snappy(duration: 0.25, extraBounce: 0.12)
 
+    /// Folding a list section open or closed: smooth, with no overshoot. A
+    /// bounce on a panel's height reads as the whole list wobbling.
+    static let fold = Animation.smooth(duration: 0.26)
+
     /// `morph`, or no animation when Reduce Motion is on. For use outside views.
     static var morphIfAllowed: Animation? {
         NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? nil : .morph
