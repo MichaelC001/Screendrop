@@ -92,7 +92,9 @@ final class CaptureShelfPresenter {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
         PreviewWindowCaptureExclusion.shared.register(window: panel)
 
-        let hostingView = CaptureShelfHostingView(rootView: CaptureShelfView())
+        // The panel stays non-key so it never takes focus from the app being
+        // worked in; without this its glass would draw in the inactive style.
+        let hostingView = CaptureShelfHostingView(rootView: CaptureShelfView().environment(\.appearsActive, true))
         panel.contentView = hostingView
 
         self.panel = panel
