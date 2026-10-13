@@ -77,7 +77,9 @@ struct CaptureShelfCard: View {
     private var isDragging: Bool { shelf.draggingID == item.id }
     private var isUploading: Bool { uploader.uploadingItems.contains(item.id) }
     private var uploadedLink: String? { uploader.uploadedURLs[item.id] }
-    private var showsActions: Bool { isHovered && !isDragging }
+    /// Held back while the shelf moves, then shown if the pointer is still
+    /// over the card when it settles.
+    private var showsActions: Bool { isHovered && !isDragging && !shelf.isMoving }
     private var isFrosted: Bool {
         showsActions || item.activity != nil || isUploading || item.flash != nil
     }

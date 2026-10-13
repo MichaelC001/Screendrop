@@ -69,6 +69,10 @@ final class CaptureShelf {
     private(set) var tuckReasons: Set<TuckReason> = []
     var hoveredID: ShelfItem.ID?
     private(set) var draggingID: ShelfItem.ID?
+    /// True while cards slide in, out, or along the column. Cards hold
+    /// their hover state until it settles: a card sliding under a resting
+    /// pointer would otherwise flash its controls on and off.
+    private(set) var isMoving = false
 
     /// The most cards the screen fits, set by the view as it lays out.
     @ObservationIgnored var capacity = 6 {
@@ -101,7 +105,8 @@ final class CaptureShelf {
 
     func tuck(_ reason: TuckReason) {
         guard !tuckReasons.contains(reason) else { return }
-        withAnimation(.morphIfAllowed) {
+        noteMotion()
+        withAnimation(Self.slideIfAllowed) {
             _ = tuckReasons.insert(reason)
             hoveredID = nil
         }
@@ -109,7 +114,8 @@ final class CaptureShelf {
 
     func untuck(_ reason: TuckReason) {
         guard tuckReasons.contains(reason) else { return }
-        withAnimation(.morphIfAllowed) {
+        noteMotion()
+        withAnimation(Self.slideIfAllowed) {
             _ = tuckReasons.remove(reason)
         }
     }
@@ -117,7 +123,8 @@ final class CaptureShelf {
     /// Brings the shelf out whatever tucked it: the user asked for it.
     func open() {
         guard isTucked else { return }
-        withAnimation(.morphIfAllowed) {
+        noteMotion()
+        withAnimation(Self.slideIfAllowed) {
             tuckReasons.removeAll()
         }
     }
@@ -175,7 +182,8 @@ final class CaptureShelf {
     /// moves to the front if it is already on the shelf.
     func show(existing url: URL, kind: PreviewMediaKind) {
         if let index = items.firstIndex(where: { $0.url == url && $0.kind == kind }) {
-            withAnimation(.morphIfAllowed) {
+            noteMotion()
+        withAnimation(Self.slideIfAllowed) {
                 let item = items.remove(at: index)
                 items.insert(item, at: 0)
                 tuckReasons.removeAll()
@@ -237,7 +245,8 @@ final class CaptureShelf {
         }
         cancelTasks(for: id)
 
-        withAnimation(.morphIfAllowed) {
+        noteMotion()
+        withAnimation(Self.slideIfAllowed) {
             items.remove(at: index)
             if hoveredID == id { hoveredID = nil }
             if draggingID == id { draggingID = nil }
@@ -251,7 +260,8 @@ final class CaptureShelf {
         QuickLookPreviewPresenter.dismiss()
         for id in items.map(\.id) { cancelTasks(for: id) }
 
-        withAnimation(.morphIfAllowed) {
+        noteMotion()
+        withAnimation(Self.slideIfAllowed) {
             items.removeAll()
             tuckReasons.removeAll()
             hoveredID = nil
@@ -495,13 +505,35 @@ final class CaptureShelf {
 
     // MARK: - Internals
 
+    /// How cards travel through the screen edge: smooth, with no overshoot.
+    /// The app's bouncy `morph` would carry them past their dock and back.
+    static let slide = Animation.smooth(duration: 0.38)
+
+    static var slideIfAllowed: Animation? {
+        NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? nil : slide
+    }
+
+    @ObservationIgnored private var motionEndTask: Task<Void, Never>?
+
+    /// Marks the shelf as moving until the slide has had time to finish.
+    func noteMotion() {
+        isMoving = true
+        motionEndTask?.cancel()
+        motionEndTask = Task {
+            try? await Task.sleep(for: .milliseconds(420))
+            guard !Task.isCancelled else { return }
+            isMoving = false
+        }
+    }
+
     /// Long edge of a card's thumbnail, in pixels.
     private static let thumbnailPixelSize: CGFloat = 520
 
     private func insert(_ item: ShelfItem, at index: Int = 0) {
         QuickLookPreviewPresenter.dismiss()
         makeRoom(keeping: items.indices.contains(index) ? items[index].id : nil)
-        withAnimation(.morphIfAllowed) {
+        noteMotion()
+        withAnimation(Self.slideIfAllowed) {
             items.insert(item, at: min(index, items.count))
             // A new capture always shows, even over an editor.
             tuckReasons.removeAll()

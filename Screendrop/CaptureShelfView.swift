@@ -58,7 +58,8 @@ struct CaptureShelfView: View {
             .task {
                 // Wait a turn so the panel is on screen before the slide starts.
                 await Task.yield()
-                withAnimation(.morphIfAllowed) { hasEntered = true }
+                shelf.noteMotion()
+                withAnimation(CaptureShelf.slideIfAllowed) { hasEntered = true }
             }
             .onChange(of: proxy.size.height) { _, height in
                 shelf.capacity = CaptureShelfMetrics.capacity(forHeight: height)
@@ -97,7 +98,7 @@ struct CaptureShelfView: View {
     }
 
     private var showsHeader: Bool {
-        isShelfHovered && !shelf.isTucked && !shelf.items.isEmpty && shelf.draggingID == nil
+        isShelfHovered && !shelf.isTucked && !shelf.isMoving && !shelf.items.isEmpty && shelf.draggingID == nil
     }
 
     private func setShelfHovered(_ isHovered: Bool) {
