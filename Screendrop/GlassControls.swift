@@ -13,8 +13,9 @@
 //  glass closer than the container spacing merges, so a wider resting gap is
 //  what lets a shape settle as its own clean capsule after the morph.
 //
-//  A selected or prominent control is inked solid (`Palette.accent`); every
-//  other control is clear glass with ink glyphs.
+//  A selected or prominent control is filled with the system accent
+//  (`Palette.accent`, called "inked" below); every other control is clear
+//  glass with label-colored glyphs.
 //
 
 import AppKit
@@ -37,7 +38,7 @@ enum GlassMetrics {
 }
 
 private extension Glass {
-    /// Clear glass, ink glass when selected or prominent, or a functional tint.
+    /// Clear glass, accent glass when selected or prominent, or a functional tint.
     static func screendrop(isInked: Bool, tint: Color?, isEnabled: Bool) -> Glass {
         var glass = Glass.regular
         if let tint {

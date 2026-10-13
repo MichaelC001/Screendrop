@@ -31,7 +31,6 @@ struct CaptureLibraryView: View {
                             Image(systemName: filter.symbol)
                                 .frame(width: 20, alignment: .center)
                         }
-                        .listItemTint(.monochrome)
                         .tag(filter)
                     }
                 }

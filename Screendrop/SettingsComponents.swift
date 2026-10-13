@@ -15,7 +15,7 @@ import SwiftUI
 // MARK: - Page
 
 /// The scaffold for one pane: a grouped form with the standard insets and
-/// the app's ink switch in place of the system one.
+/// the app's accent switch in place of the system one.
 struct SettingsPage<Content: View>: View {
     @ViewBuilder var content: () -> Content
 

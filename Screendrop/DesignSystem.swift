@@ -3,10 +3,12 @@
 //  Screendrop
 //
 //  The tokens every surface is built from: Settings, the Library, both
-//  editors and the floating chrome. Screendrop is monochrome ink on Liquid
-//  Glass. Captures, annotation colors and wallpapers bring the color; the
-//  chrome around them stays neutral so they read first. Red is the one
-//  functional color: it means recording, or that something will be removed.
+//  editors and the floating chrome. Screendrop is Liquid Glass in the Mac's
+//  own colors: neutral label ink for text and glyphs, and the system accent
+//  (whatever the user picked in System Settings) for selection, switches and
+//  the one prominent action. Captures, annotation colors and wallpapers
+//  bring the rest of the color. Red means recording, or that something will
+//  be removed.
 //
 //  Components live beside this file: GlassControls.swift for floating and
 //  toolbar chrome, AnnotationInspectorStyle.swift for inspector controls,
@@ -34,14 +36,16 @@ extension NSAppearance {
 /// Semantic colors. Views ask for a role, never a literal color, so the whole
 /// app can be retuned here.
 enum Palette {
-    /// Selection, the "on" state and the one prominent action on a surface.
-    static let accent = Color.ink
-    /// Marks drawn on an `accent` fill.
-    static let onAccent = Color.inkInverse
+    /// Selection, the "on" state and the one prominent action on a surface:
+    /// the system accent, so the app matches the rest of the Mac.
+    static let accent = Color.accentColor
+    /// Marks drawn on an `accent` fill, white as on the system's own
+    /// prominent controls.
+    static let onAccent = Color.white
     /// Marks drawn over content rather than chrome: timeline cues, the
     /// playhead, a canvas marquee, the screen a recording will capture, the
-    /// word being spoken. They sit on arbitrary pixels, so they keep the
-    /// system accent instead of ink.
+    /// word being spoken. The same system accent today, kept as its own role
+    /// so marks over pixels can be retuned apart from chrome.
     static let highlight = Color.accentColor
     /// Recording, and actions that remove something.
     static let record = Color(nsColor: .systemRed)

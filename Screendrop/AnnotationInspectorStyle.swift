@@ -419,7 +419,7 @@ struct InspectorToggle: View {
     }
 }
 
-/// The ink switch as a form toggle: the label on the leading edge, the
+/// The app's accent switch as a form toggle: the label on the leading edge, the
 /// switch trailing, the way a native switch sits in a grouped form.
 struct InkSwitchToggleStyle: ToggleStyle {
     func makeBody(configuration: Configuration) -> some View {
