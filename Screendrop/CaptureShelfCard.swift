@@ -9,9 +9,9 @@
 //  or has just finished something, that state takes the actions' place.
 //  Every action is also in its context menu, and it drags out as a file.
 //
-//  The controls are always light Liquid Glass with dark glyphs: they sit on
-//  arbitrary screenshot content, where a fixed light-on-frost contrast reads
-//  better than glass that follows the system appearance.
+//  The controls are solid light chips rather than the app's glass: they sit
+//  on arbitrary screenshot content, where a fixed light-on-frost contrast
+//  reads best, and the shelf's never-key panel would draw glass flat.
 //
 
 import AppKit
@@ -294,14 +294,17 @@ struct CaptureShelfCard: View {
     }
 }
 
-/// A Liquid Glass control over the frosted card: a circle when its width
-/// matches its height, a capsule otherwise. Always light glass with dark
-/// glyphs, because it sits on the screenshot rather than the window.
+/// A solid light control over the frosted card: a circle when its width
+/// matches its height, a capsule otherwise. Solid rather than glass: the
+/// shelf's panel is never key, and glass in a non-key window draws flat.
+/// Light on any screenshot, so it stays the same in dark mode.
 private struct ShelfChipButton<Label: View>: View {
     let help: String
     let width: CGFloat
     let action: () -> Void
     @ViewBuilder let label: () -> Label
+
+    @State private var isHovered = false
 
     private var isCircle: Bool { width <= 30 }
     private var height: CGFloat { isCircle ? width : 26 }
@@ -312,11 +315,14 @@ private struct ShelfChipButton<Label: View>: View {
                 .foregroundStyle(.black.opacity(0.85))
                 .padding(.horizontal, isCircle ? 0 : 8)
                 .frame(width: width, height: height)
+                .background(.white.opacity(isHovered ? 1 : 0.88), in: Capsule())
+                .shadow(color: .black.opacity(0.18), radius: 3, y: 1)
+                .scaleEffect(isHovered ? 1.04 : 1)
                 .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .glassEffect(.regular.interactive(), in: Capsule())
-        .environment(\.colorScheme, .light)
+        .onHover { isHovered = $0 }
+        .motion(.morphQuick, value: isHovered)
         .help(help)
         .accessibilityLabel(help)
     }
