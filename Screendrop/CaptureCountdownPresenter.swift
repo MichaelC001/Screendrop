@@ -153,7 +153,7 @@ private final class CaptureCountdownModel {
 /// A glass square in the middle of the screen: the seconds left, a ring
 /// that drains through each second, and how to call it off.
 private struct CaptureCountdownView: View {
-    static let size: CGFloat = 168
+    static let size: CGFloat = 140
     static let shadowSlack: CGFloat = 32
 
     @State var model: CaptureCountdownModel
@@ -163,7 +163,7 @@ private struct CaptureCountdownView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: 9) {
             ZStack {
                 Circle()
                     .stroke(Palette.hairline, lineWidth: 3)
@@ -173,12 +173,12 @@ private struct CaptureCountdownView: View {
                     .rotationEffect(.degrees(-90))
 
                 Text("\(model.remaining)")
-                    .font(.system(size: 52, weight: .semibold, design: .rounded))
+                    .font(.system(size: 44, weight: .semibold, design: .rounded))
                     .foregroundStyle(Palette.label)
                     .contentTransition(.numericText(countsDown: true))
                     .motion(.morphQuick, value: model.remaining)
             }
-            .frame(width: 96, height: 96)
+            .frame(width: 84, height: 84)
 
             Button(action: onCancel) {
                 HStack(spacing: 5) {
@@ -192,7 +192,7 @@ private struct CaptureCountdownView: View {
             .help("Cancel countdown (Esc)")
         }
         .frame(width: Self.size, height: Self.size)
-        .glassHUD(radius: 40)
+        .glassHUD()
         .padding(Self.shadowSlack)
         .onAppear { drain(from: model.remaining) }
         .onChange(of: model.remaining) { _, value in drain(from: value) }
