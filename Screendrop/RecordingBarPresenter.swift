@@ -298,19 +298,27 @@ private struct RecordingBarView: View {
     }
 
     private var bar: some View {
-        Group {
-            switch presenter.mode {
-            case .picker:
-                RecordingPickerControls()
-            case .recording:
-                RecordingSessionControls()
+        HStack(spacing: 0) {
+            // The controls fill the bar edge to edge, so the background never
+            // shows to drag by; the grip is somewhere to take hold of it.
+            BarDragHandle()
+
+            Group {
+                switch presenter.mode {
+                case .picker:
+                    RecordingPickerControls()
+                case .recording:
+                    RecordingSessionControls()
+                }
             }
+            // The outgoing controls leave instantly so the bar starts
+            // narrowing immediately; a fading-out set would hold its layout
+            // width and the bar would visibly bulge to fit both before
+            // collapsing.
+            .transition(.asymmetric(insertion: .opacity, removal: .identity))
         }
-        // The outgoing controls leave instantly so the bar starts narrowing
-        // immediately; a fading-out set would hold its layout width and the
-        // bar would visibly bulge to fit both before collapsing.
-        .transition(.asymmetric(insertion: .opacity, removal: .identity))
-        .padding(.horizontal, BarMetrics.horizontalPadding)
+        .padding(.leading, 2)
+        .padding(.trailing, BarMetrics.horizontalPadding)
         .frame(height: BarMetrics.height)
         // Clipped to the same shape the glass takes, so a morph reveals and
         // hides the controls behind the narrowing edge instead of letting

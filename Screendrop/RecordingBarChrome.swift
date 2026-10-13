@@ -477,3 +477,72 @@ final class BarControlHoverView: NSView {
         }
     }
 }
+
+// MARK: - Drag handle
+
+/// Two columns of three dots at the bar's leading end. Pressing them drags
+/// the whole bar with the system window drag, so it moves like any window
+/// and stays on screen.
+struct BarDragHandle: View {
+    var body: some View {
+        Grid(horizontalSpacing: 3, verticalSpacing: 3) {
+            ForEach(0..<3, id: \.self) { _ in
+                GridRow {
+                    dot
+                    dot
+                }
+            }
+        }
+        .frame(width: 16, height: BarMetrics.controlSize)
+        .contentShape(Rectangle())
+        .overlay { BarDragHandleRegion() }
+        .help("Drag to move")
+        .accessibilityLabel("Move bar")
+    }
+
+    private var dot: some View {
+        Circle()
+            .fill(BarMetrics.inactiveTint)
+            .frame(width: 3, height: 3)
+    }
+}
+
+private struct BarDragHandleRegion: NSViewRepresentable {
+    func makeNSView(context: Context) -> BarDragHandleView { BarDragHandleView() }
+    func updateNSView(_ nsView: BarDragHandleView, context: Context) {}
+}
+
+/// Takes the press and hands it to the window to drag, and shows the
+/// open hand over the grip. The cursor is set a turn late for the same
+/// reason as `BarControlHoverView`'s pointing hand.
+final class BarDragHandleView: NSView {
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        bounds.contains(convert(point, from: superview)) ? self : nil
+    }
+
+    override var mouseDownCanMoveWindow: Bool { true }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        for area in trackingAreas { removeTrackingArea(area) }
+        addTrackingArea(NSTrackingArea(
+            rect: .zero,
+            options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect],
+            owner: self
+        ))
+    }
+
+    override func mouseEntered(with event: NSEvent) { setCursor(.openHand) }
+    override func mouseMoved(with event: NSEvent) { setCursor(.openHand) }
+    override func mouseExited(with event: NSEvent) { setCursor(.arrow) }
+
+    override func mouseDown(with event: NSEvent) {
+        NSCursor.closedHand.set()
+        window?.performDrag(with: event)
+        setCursor(.openHand)
+    }
+
+    private func setCursor(_ cursor: NSCursor) {
+        DispatchQueue.main.async { cursor.set() }
+    }
+}
