@@ -359,7 +359,7 @@ struct InspectorToggle: View {
 
     let title: String
     @Binding var isOn: Bool
-    var size: Size = .small
+    var size: Size = .regular
 
     private static let knobInset: CGFloat = 2
 
@@ -367,7 +367,7 @@ struct InspectorToggle: View {
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     @State private var isHovering = false
 
-    init(_ title: String, isOn: Binding<Bool>, size: Size = .small) {
+    init(_ title: String, isOn: Binding<Bool>, size: Size = .regular) {
         self.title = title
         self._isOn = isOn
         self.size = size
