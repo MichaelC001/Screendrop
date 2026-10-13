@@ -629,9 +629,18 @@ final class AnnotationEditorModel {
 
     // MARK: - Presets
 
+    /// The tool chosen in Settings, Select unless changed, or the last one
+    /// picked when the setting asks for that.
+    private static func startingTool(lastUsed: AnnotationTool) -> AnnotationTool {
+        let choice = UserDefaults.standard.string(forKey: ScreendropPreferences.annotationStartingToolKey)
+            ?? AnnotationTool.select.rawValue
+        if choice == ScreendropPreferences.startingToolLastUsed { return lastUsed }
+        return AnnotationTool(rawValue: choice) ?? .select
+    }
+
     private func applyAnnotationPreset() {
         let preset = AnnotationPresetStore.load()
-        selectedTool = preset.selectedTool
+        selectedTool = Self.startingTool(lastUsed: preset.selectedTool)
         selectedSwatch = preset.swatch
         strokeWidth = CGFloat(preset.strokeWidth)
         redactionDensity = CGFloat(preset.redactionDensity)

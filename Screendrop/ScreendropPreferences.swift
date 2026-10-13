@@ -35,6 +35,10 @@ enum ScreendropPreferences {
     static let shelfHandlePositionKey = "captureShelfHandlePosition"
     static let overlayCardLayoutKey = "overlayCardLayout"
     static let lowResolutionEditorPreviewKey = "lowResolutionEditorPreview"
+    /// The tool the annotator opens with: a tool's raw value, or
+    /// `startingToolLastUsed` to reopen with whatever was picked last.
+    static let annotationStartingToolKey = "annotationStartingTool"
+    static let startingToolLastUsed = "lastUsed"
     static let trimFullscreenMenuBarKey = "trimFullscreenMenuBar"
     static let recordingCameraDeviceIDKey = "recordingCameraDeviceID"
     static let recordingMicrophoneDeviceIDKey = "recordingMicrophoneDeviceID"

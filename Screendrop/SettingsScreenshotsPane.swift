@@ -13,6 +13,7 @@ struct ScreenshotsSettingsPane: View {
     @AppStorage(ScreendropPreferences.captureDelaySecondsKey) private var captureDelaySeconds = 0
     @AppStorage(ScreendropPreferences.lowResolutionEditorPreviewKey) private var lowResolutionEditorPreview = true
     @AppStorage(ScreendropPreferences.trimFullscreenMenuBarKey) private var trimFullscreenMenuBar = true
+    @AppStorage(ScreendropPreferences.annotationStartingToolKey) private var startingTool = AnnotationTool.select.rawValue
 
     private let delayOptions: [Int] = [0, 3, 5, 10]
 
@@ -60,6 +61,19 @@ struct ScreenshotsSettingsPane: View {
             }
 
             Section("Annotation Editor") {
+                Picker(selection: $startingTool) {
+                    Text("Last Used").tag(ScreendropPreferences.startingToolLastUsed)
+                    Divider()
+                    ForEach(AnnotationTool.allCases) { tool in
+                        Text(tool.title).tag(tool.rawValue)
+                    }
+                } label: {
+                    SettingsControlLabel(
+                        "Starting tool",
+                        detail: "The tool picked when the editor opens."
+                    )
+                }
+
                 Toggle(isOn: $lowResolutionEditorPreview) {
                     SettingsControlLabel(
                         "Use low-resolution preview to save memory",
