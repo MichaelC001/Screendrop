@@ -27,6 +27,26 @@
     -->
 
     <item>
+      <title>Version 0.35.2</title>
+      <sparkle:version>35</sparkle:version>
+      <sparkle:shortVersionString>0.35.2</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.4</sparkle:minimumSystemVersion>
+      <pubDate>Tue, 13 Oct 2026 18:51:30 +0000</pubDate>
+      <description><![CDATA[
+        <h2>What's New in 0.35.2</h2>
+        <ul>
+          <li>Fixed the capture shelf's tucked handle and header buttons only responding to clicks on their text on macOS 26</li>
+        </ul>
+      ]]></description>
+      <enclosure
+        url="https://github.com/fayazara/screendrop/releases/download/v0.35.2/Screendrop.dmg"
+        type="application/octet-stream"
+        sparkle:edSignature="TgXOJ7nX6zt/g6Vghyl6ERfZTMPCVvmofqnSLH239I1M64lAgVDvdYNL/9EaS2eZ9Nvh+iAljbT9sKNKfVqDAg=="
+        length="7698983"
+      />
+    </item>
+
+    <item>
       <title>Version 0.35.1</title>
       <sparkle:version>34</sparkle:version>
       <sparkle:shortVersionString>0.35.1</sparkle:shortVersionString>
