@@ -27,6 +27,26 @@
     -->
 
     <item>
+      <title>Version 0.35.3</title>
+      <sparkle:version>36</sparkle:version>
+      <sparkle:shortVersionString>0.35.3</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.4</sparkle:minimumSystemVersion>
+      <pubDate>Wed, 14 Oct 2026 06:08:14 +0000</pubDate>
+      <description><![CDATA[
+        <h2>What's New in 0.35.3</h2>
+        <ul>
+          <li>Press Space during Capture Area to switch to window selection, just like the system screenshot tool (thanks @Iiviavs)</li>
+        </ul>
+      ]]></description>
+      <enclosure
+        url="https://github.com/fayazara/screendrop/releases/download/v0.35.3/Screendrop.dmg"
+        type="application/octet-stream"
+        sparkle:edSignature="PiraUrf66l1ilz7UcGQsiABluQeONveY0Ae4MpI68hoe+XFynVPJYlGo1S/6qagwynhMGRNwHj4RWoF91e0IBg=="
+        length="7698636"
+      />
+    </item>
+
+    <item>
       <title>Version 0.35.2</title>
       <sparkle:version>35</sparkle:version>
       <sparkle:shortVersionString>0.35.2</sparkle:shortVersionString>
